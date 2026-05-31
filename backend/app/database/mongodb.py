@@ -81,10 +81,6 @@ class MongoDB:
         return cls.get_db()["tool_execution_logs"]
 
     @classmethod
-    def crm_sync_logs(cls) -> Collection:
-        return cls.get_db()["crm_sync_logs"]
-
-    @classmethod
     def conversation_summaries(cls) -> Collection:
         return cls.get_db()["conversation_summaries"]
 
@@ -95,3 +91,19 @@ class MongoDB:
     @classmethod
     def call_outcomes(cls) -> Collection:
         return cls.get_db()["call_outcomes"]
+
+    @classmethod
+    def campaigns(cls) -> Collection:
+        return cls.get_db()["campaigns"]
+
+    @classmethod
+    def campaign_customers(cls) -> Collection:
+        return cls.get_db()["campaign_customers"]
+
+    @classmethod
+    def campaign_runs(cls) -> Collection:
+        return cls.get_db()["campaign_runs"]
+
+    @classmethod
+    def campaign_analytics(cls) -> Collection:
+        return cls.get_db()["campaign_analytics"]

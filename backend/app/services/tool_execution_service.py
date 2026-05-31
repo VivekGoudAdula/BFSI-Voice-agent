@@ -10,6 +10,7 @@ from pymongo.errors import PyMongoError
 from app.database.mongodb import MongoDB
 from app.models.tool import ToolExecutionLogResponse
 from app.tools.base import ToolContext, ToolResult
+from app.utils.mongo_query import find_sorted
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +84,13 @@ class ToolExecutionService:
     def get_logs_by_call(self, call_id: str) -> list[ToolExecutionLogResponse]:
         """Retrieve tool execution logs for a call."""
         try:
-            cursor = (
-                MongoDB.tool_execution_logs()
-                .find({"call_id": call_id})
-                .sort("executed_at", 1)
+            docs = find_sorted(
+                MongoDB.tool_execution_logs(),
+                {"call_id": call_id},
+                sort_field="executed_at",
+                sort_direction=1,
             )
-            return [self._serialize(doc) for doc in cursor]
+            return [self._serialize(doc) for doc in docs]
         except PyMongoError as exc:
             logger.error("Failed to fetch tool logs: %s", exc)
             return []
@@ -96,13 +98,13 @@ class ToolExecutionService:
     def get_recent_logs(self, limit: int = 50) -> list[ToolExecutionLogResponse]:
         """Retrieve recent tool execution logs."""
         try:
-            cursor = (
-                MongoDB.tool_execution_logs()
-                .find()
-                .sort("executed_at", -1)
-                .limit(limit)
+            docs = find_sorted(
+                MongoDB.tool_execution_logs(),
+                sort_field="executed_at",
+                sort_direction=-1,
+                limit=limit,
             )
-            return [self._serialize(doc) for doc in cursor]
+            return [self._serialize(doc) for doc in docs]
         except PyMongoError as exc:
             logger.error("Failed to fetch tool logs: %s", exc)
             return []

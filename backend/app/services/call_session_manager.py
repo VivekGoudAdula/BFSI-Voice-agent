@@ -31,6 +31,7 @@ from app.core.logging_config import log_with_context
 from app.database.mongodb import MongoDB
 
 from app.models.agent import AgentConfig
+from app.utils.mongo_query import find_sorted
 
 from app.models.conversation import (
 
@@ -630,17 +631,14 @@ class CallSessionManager:
 
             session = MongoDB.conversation_sessions().find_one({"call_id": call_id})
 
-            cursor = (
-
-                MongoDB.transcripts()
-
-                .find({"call_id": call_id})
-
-                .sort("timestamp", 1)
-
+            entries_raw = find_sorted(
+                MongoDB.transcripts(),
+                {"call_id": call_id},
+                sort_field="timestamp",
+                sort_direction=1,
             )
 
-            entries = list(cursor)
+            entries = entries_raw
 
         except PyMongoError as exc:
 

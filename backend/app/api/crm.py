@@ -1,4 +1,4 @@
-"""CRM integration API endpoints."""
+"""Internal CRM API endpoints (MongoDB-backed)."""
 
 from fastapi import APIRouter, Depends
 
@@ -7,25 +7,12 @@ from app.core.exceptions import CRMRecordNotFoundError
 from app.models.crm import (
     CRMAnalyticsSummary,
     CallOutcomeResponse,
-    CRMSyncLogResponse,
     ConversationSummaryResponse,
     LeadStatusUpdateResponse,
 )
 from app.services.crm_data_service import CRMDataService
 
-router = APIRouter(prefix="/crm", tags=["CRM Integration"])
-
-
-@router.get(
-    "/sync-logs",
-    response_model=list[CRMSyncLogResponse],
-    summary="List CRM synchronization logs",
-)
-def get_sync_logs(
-    limit: int = 50,
-    service: CRMDataService = Depends(get_crm_data_service),
-) -> list[CRMSyncLogResponse]:
-    return service.get_sync_logs(limit=limit)
+router = APIRouter(prefix="/crm", tags=["Internal CRM"])
 
 
 @router.get(
@@ -76,7 +63,7 @@ def get_lead_status(
 @router.get(
     "/analytics/summary",
     response_model=CRMAnalyticsSummary,
-    summary="CRM-enriched agent analytics",
+    summary="Internal CRM analytics summary",
 )
 def get_crm_analytics(
     service: CRMDataService = Depends(get_crm_data_service),

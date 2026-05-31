@@ -11,6 +11,7 @@ from app.core.exceptions import DatabaseError
 from app.core.logging_config import log_with_context
 from app.database.mongodb import MongoDB
 from app.models.customer import CustomerCreate, CustomerResponse
+from app.utils.mongo_query import find_sorted
 from app.utils.phone import validate_phone
 
 logger = logging.getLogger(__name__)
@@ -57,11 +58,30 @@ class CustomerService:
 
     def get_customers(self) -> list[CustomerResponse]:
         try:
-            cursor = MongoDB.customers().find().sort("created_at", -1)
-            return [_serialize_customer(doc) for doc in cursor]
+            docs = find_sorted(
+                MongoDB.customers(), sort_field="created_at", sort_direction=-1
+            )
+            return [_serialize_customer(doc) for doc in docs]
         except PyMongoError as exc:
             logger.error("Failed to fetch customers: %s", exc)
             raise DatabaseError(str(exc)) from exc
+
+    def get_customer_by_phone(self, phone: str) -> dict[str, Any] | None:
+        """Fetch customer by normalized phone number."""
+        normalized = validate_phone(phone)
+        try:
+            return MongoDB.customers().find_one({"phone": normalized})
+        except PyMongoError as exc:
+            logger.error("Failed to fetch customer by phone: %s", exc)
+            raise DatabaseError(str(exc)) from exc
+
+    def get_or_create(self, data: CustomerCreate) -> CustomerResponse:
+        """Return existing customer by phone or create a new one."""
+        phone = validate_phone(data.phone)
+        existing = self.get_customer_by_phone(phone)
+        if existing:
+            return _serialize_customer(existing)
+        return self.create_customer(data)
 
     def get_customer_by_id(self, customer_id: str) -> dict[str, Any] | None:
         """Fetch raw customer document; returns None if not found or invalid ID."""

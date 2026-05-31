@@ -93,6 +93,10 @@ async def twilio_status_callback(
             ended_session = session_manager.end_session(session.stream_sid)
             if ended_session:
                 await post_call_service.process_call_end(ended_session)
+        else:
+            await post_call_service.handle_call_status_update(call_id, "no-answer")
+    elif mapped in ("failed", "busy", "no-answer", "canceled"):
+        await post_call_service.handle_call_status_update(call_id, mapped)
 
     logger.info(
         "Twilio status callback | call_id=%s status=%s",

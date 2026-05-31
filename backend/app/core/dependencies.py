@@ -3,6 +3,7 @@
 from functools import lru_cache
 
 from app.core.config import Settings, get_settings
+from app.repositories.campaign_repository import CampaignRepository
 from app.services.agent_analytics_service import AgentAnalyticsService
 from app.services.agent_config_service import AgentConfigService
 from app.services.banking_service import BankingService
@@ -10,9 +11,10 @@ from app.services.callback_service import CallbackService
 from app.services.call_analysis_service import CallAnalysisService
 from app.services.call_service import CallService
 from app.services.call_session_manager import CallSessionManager
+from app.services.campaign_queue_service import CampaignQueueService
+from app.services.campaign_service import CampaignService
 from app.services.conversation_service import ConversationService
 from app.services.crm_data_service import CRMDataService
-from app.services.crm_sync_service import CRMSyncService
 from app.services.customer_service import CustomerService
 from app.services.elevenlabs_service import ElevenLabsService
 from app.services.groq_service import GroqService
@@ -96,22 +98,43 @@ def get_call_analysis_service() -> CallAnalysisService:
 
 
 @lru_cache
-def get_crm_sync_service() -> CRMSyncService:
-    return CRMSyncService(get_settings(), get_crm_data_service())
+def get_campaign_repository() -> CampaignRepository:
+    return CampaignRepository()
+
+
+@lru_cache
+def get_campaign_queue_service() -> CampaignQueueService:
+    return CampaignQueueService(
+        repository=get_campaign_repository(),
+        settings=get_settings(),
+        call_service_factory=get_call_service,
+        customer_service=get_customer_service(),
+    )
+
+
+@lru_cache
+def get_campaign_service() -> CampaignService:
+    service = CampaignService(
+        repository=get_campaign_repository(),
+        settings=get_settings(),
+    )
+    service.set_queue_service(get_campaign_queue_service())
+    return service
 
 
 @lru_cache
 def get_post_call_service() -> PostCallService:
-    return PostCallService(
+    service = PostCallService(
         settings=get_settings(),
         analytics_service=get_agent_analytics_service(),
         call_analysis_service=get_call_analysis_service(),
         crm_data_service=get_crm_data_service(),
-        crm_sync_service=get_crm_sync_service(),
         customer_service=get_customer_service(),
         tool_execution_service=get_tool_execution_service(),
         callback_service=get_callback_service(),
     )
+    service.set_campaign_queue_service(get_campaign_queue_service())
+    return service
 
 
 def get_conversation_service() -> ConversationService:

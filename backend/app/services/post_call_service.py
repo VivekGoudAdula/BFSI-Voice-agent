@@ -1,4 +1,4 @@
-"""Post-call processing orchestrator for CRM integration."""
+"""Post-call processing orchestrator for internal CRM."""
 
 import logging
 from datetime import datetime, timezone
@@ -8,15 +8,14 @@ from app.agents.states import ConversationState
 from app.core.config import Settings
 from app.core.logging_config import log_with_context
 from app.database.mongodb import MongoDB
-from app.models.crm import ProcessedCallData
 from app.services.agent_analytics_service import AgentAnalyticsService
 from app.services.call_analysis_service import CallAnalysisService
 from app.services.call_session_manager import ActiveCallSession
 from app.services.callback_service import CallbackService
 from app.services.crm_data_service import CRMDataService
-from app.services.crm_sync_service import CRMSyncService
 from app.services.customer_service import CustomerService
 from app.services.tool_execution_service import ToolExecutionService
+from app.utils.mongo_query import find_sorted
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,7 @@ logger = logging.getLogger(__name__)
 class PostCallService:
     """
     Orchestrates post-call processing:
-    analytics → analysis → persistence → CRM sync.
+    analytics → analysis → internal CRM persistence → campaign tracking.
     """
 
     def __init__(
@@ -33,20 +32,23 @@ class PostCallService:
         analytics_service: AgentAnalyticsService,
         call_analysis_service: CallAnalysisService,
         crm_data_service: CRMDataService,
-        crm_sync_service: CRMSyncService,
         customer_service: CustomerService,
         tool_execution_service: ToolExecutionService,
         callback_service: CallbackService,
+        campaign_queue_service: Any = None,
     ) -> None:
         self._settings = settings
         self._analytics = analytics_service
         self._analysis = call_analysis_service
         self._crm_data = crm_data_service
-        self._crm_sync = crm_sync_service
         self._customers = customer_service
         self._tool_logs = tool_execution_service
         self._callbacks = callback_service
+        self._campaign_queue = campaign_queue_service
         self._processed_calls: set[str] = set()
+
+    def set_campaign_queue_service(self, queue_service: Any) -> None:
+        self._campaign_queue = queue_service
 
     async def process_call_end(self, session: ActiveCallSession) -> None:
         """Run full post-call pipeline when a call session ends."""
@@ -110,33 +112,7 @@ class PostCallService:
         )
 
         self._create_follow_up_callback(session, analysis)
-
-        customer = self._customers.get_customer_by_id(session.customer_id)
-        customer_phone = customer.get("phone", "") if customer else ""
-
-        processed = ProcessedCallData(
-            call_id=session.call_id,
-            call_sid=session.call_sid,
-            customer_id=session.customer_id,
-            customer_name=session.customer_name,
-            customer_phone=customer_phone,
-            loan_id=session.agent_context.get("loan_account", ""),
-            transcript=transcript,
-            summary=analysis.summary,
-            lead_status=analysis.lead_status,
-            call_outcome=analysis.call_outcome,
-            intent=analysis.intent,
-            follow_up_actions=analysis.follow_up_actions,
-            follow_up_date=analysis.follow_up.follow_up_date,
-            follow_up_time=analysis.follow_up.follow_up_time,
-            duration_seconds=duration,
-            escalation_triggered=escalation_triggered,
-            escalation_reason=session.escalation_reason,
-            tools_used=tools_used,
-            agent_context=session.agent_context,
-        )
-
-        self._crm_sync.schedule_background_sync(processed)
+        await self._update_campaign_tracking(session.call_id, analysis, duration)
 
         log_with_context(
             logger,
@@ -146,6 +122,52 @@ class PostCallService:
             lead_status=analysis.lead_status.value,
             call_outcome=analysis.call_outcome.value,
             event="post_call_completed",
+        )
+
+    async def handle_call_status_update(
+        self,
+        call_id: str,
+        status: str,
+    ) -> None:
+        """Handle terminal call statuses for campaign tracking (no session)."""
+        if status not in ("failed", "busy", "no-answer", "canceled"):
+            return
+
+        call = MongoDB.calls().find_one({"_id": self._to_object_id(call_id)})
+        if not call:
+            return
+
+        campaign_id = call.get("campaign_id")
+        campaign_customer_id = call.get("campaign_customer_id")
+        if not campaign_id or not campaign_customer_id:
+            return
+
+        if self._campaign_queue:
+            await self._campaign_queue.on_call_failed(
+                campaign_id, campaign_customer_id
+            )
+
+    async def _update_campaign_tracking(
+        self,
+        call_id: str,
+        analysis: Any,
+        duration: Optional[float],
+    ) -> None:
+        call = MongoDB.calls().find_one({"_id": self._to_object_id(call_id)})
+        if not call:
+            return
+
+        campaign_id = call.get("campaign_id")
+        campaign_customer_id = call.get("campaign_customer_id")
+        if not campaign_id or not campaign_customer_id or not self._campaign_queue:
+            return
+
+        await self._campaign_queue.on_call_finished(
+            campaign_id,
+            campaign_customer_id,
+            success=True,
+            lead_status=analysis.lead_status.value,
+            duration_seconds=duration,
         )
 
     def _finalize_analytics(self, session: ActiveCallSession) -> None:
@@ -200,13 +222,14 @@ class PostCallService:
     @staticmethod
     def _build_transcript(call_id: str) -> str:
         try:
-            cursor = (
-                MongoDB.transcripts()
-                .find({"call_id": call_id})
-                .sort("timestamp", 1)
+            entries = find_sorted(
+                MongoDB.transcripts(),
+                {"call_id": call_id},
+                sort_field="timestamp",
+                sort_direction=1,
             )
             lines = []
-            for entry in cursor:
+            for entry in entries:
                 role = entry.get("role", "unknown").upper()
                 content = entry.get("content", "")
                 lines.append(f"{role}: {content}")
@@ -214,3 +237,12 @@ class PostCallService:
         except Exception as exc:
             logger.error("Failed to build transcript for call %s: %s", call_id, exc)
             return ""
+
+    @staticmethod
+    def _to_object_id(call_id: str):
+        from bson import ObjectId
+
+        try:
+            return ObjectId(call_id)
+        except Exception:
+            return None

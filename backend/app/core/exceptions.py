@@ -88,19 +88,25 @@ class AgentNotFoundError(AppException):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent not found: {agent_id}",
         )
-
-
-class CRMServiceError(AppException):
-    def __init__(self, message: str) -> None:
-        super().__init__(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"CRM integration error: {message}",
-        )
-
-
 class CRMRecordNotFoundError(AppException):
     def __init__(self, call_id: str, record_type: str) -> None:
         super().__init__(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"{record_type} not found for call: {call_id}",
+        )
+
+
+class CampaignNotFoundError(AppException):
+    def __init__(self, campaign_id: str) -> None:
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Campaign not found: {campaign_id}",
+        )
+
+
+class CampaignStateError(AppException):
+    def __init__(self, campaign_id: str, message: str) -> None:
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Campaign {campaign_id}: {message}",
         )

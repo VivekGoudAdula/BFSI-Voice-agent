@@ -1,6 +1,6 @@
 # AI Voice Agent Platform
 
-Phase 5: CRM integration with Salesforce, Zoho CRM, and LeadSquared — automatic post-call sync, conversation analysis, and lead classification.
+Phase 6: Campaign engine for large-scale outbound calling with internal MongoDB CRM.
 
 ## Stack
 
@@ -13,7 +13,7 @@ Phase 5: CRM integration with Salesforce, Zoho CRM, and LeadSquared — automati
 | TTS | ElevenLabs |
 | Agent Engine | Configurable multi-agent framework |
 | Tools | Banking actions (EMI, loans, callbacks, payment links, transfer) |
-| CRM | Salesforce, Zoho CRM, LeadSquared (provider pattern) |
+| CRM | Internal MongoDB (summaries, outcomes, lead status, campaigns) |
 | Frontend | React, Vite, TypeScript |
 
 ## Quick Start
@@ -141,52 +141,82 @@ The LLM never invents banking data — it always calls tools and uses the return
 - `callbacks` — scheduled callback records
 - `tool_execution_logs` — tool name, arguments, result, execution time
 
-## Phase 5 — CRM Integration
+## Phase 5 — Internal CRM
 
 After every call, the platform automatically:
 
 - Generates conversation summaries (Groq)
 - Classifies lead status and call outcome
 - Extracts follow-up dates and creates callbacks
-- Syncs data to CRM (Salesforce / Zoho / LeadSquared)
-- Logs all CRM sync attempts with retry (1 min, 5 min, 15 min)
+- Stores all data in MongoDB (no external CRM)
 
-### Architecture
-
-```
-Customer → Voice Call → Agent Conversation → Tool Calls
-    → Conversation Ends → Call Analysis → CRM Mapping Engine
-    → CRM Connector → Salesforce / Zoho / LeadSquared
-```
-
-### CRM API
+### Internal CRM API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/crm/sync-logs` | CRM synchronization audit logs |
 | GET | `/crm/summary/{call_id}` | Conversation summary |
 | GET | `/crm/outcome/{call_id}` | Call outcome classification |
 | GET | `/crm/status/{call_id}` | Lead status update |
-| GET | `/crm/analytics/summary` | CRM-enriched analytics |
-
-### CRM configuration
-
-Set in `backend/.env`:
-
-| Variable | Description |
-|----------|-------------|
-| `CRM_ENABLED` | Enable/disable CRM sync (default: true) |
-| `CRM_PROVIDER` | `salesforce`, `zoho`, or `leadsquared` |
-| `CRM_MOCK_MODE` | Mock CRM API when credentials absent (default: true) |
-
-Provider-specific credentials are documented in `backend/.env.example`.
+| GET | `/crm/analytics/summary` | CRM analytics |
 
 ### MongoDB collections (Phase 5)
 
 - `conversation_summaries` — AI-generated call summaries
 - `lead_status_updates` — lead status classifications
 - `call_outcomes` — call outcome records
-- `crm_sync_logs` — CRM sync status, attempts, errors
+
+## Phase 6 — Campaign Engine
+
+Large-scale outbound calling from uploaded CSV datasets. Campaign execution runs in background asyncio tasks (Redis/Celery-ready architecture).
+
+### Campaign workflow
+
+```
+Admin → Upload CSV → Create Campaign → Start Campaign
+    → Campaign Queue → Batch Outbound Calls → AI Voice Agent
+    → Call Results → MongoDB
+```
+
+### CSV format
+
+```csv
+Name,Phone,LoanID
+John Doe,+919876543210,LN001
+Raj Kumar,+919876543211,LN002
+```
+
+### Campaign API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/campaigns/create` | Create a new campaign |
+| POST | `/campaigns/upload` | Upload CSV (form: `file`, `campaign_id`) |
+| POST | `/campaigns/{id}/start` | Start outbound calling |
+| POST | `/campaigns/{id}/pause` | Pause a running campaign |
+| POST | `/campaigns/{id}/resume` | Resume a paused campaign |
+| POST | `/campaigns/{id}/stop` | Stop a campaign |
+| GET | `/campaigns` | List all campaigns |
+| GET | `/campaigns/{id}` | Get campaign details |
+| GET | `/campaigns/{id}/analytics` | Campaign analytics |
+| GET | `/campaigns/{id}/customers` | List campaign customers |
+| GET | `/campaigns/{id}/results` | Call results with summaries |
+
+### Campaign configuration
+
+Set in `backend/.env`:
+
+| Variable | Description |
+|----------|-------------|
+| `CAMPAIGN_BATCH_SIZE` | Concurrent calls per batch (default: 10) |
+| `CAMPAIGN_CALL_INTERVAL_SECONDS` | Delay between batch cycles (default: 5.0) |
+| `CAMPAIGN_MAX_CONCURRENT_CALLS` | Max concurrent calls cap (default: 50) |
+
+### MongoDB collections (Phase 6)
+
+- `campaigns` — campaign metadata and status
+- `campaign_customers` — imported customers per campaign
+- `campaign_runs` — execution run records
+- `campaign_analytics` — aggregated campaign metrics
 
 ## Documentation
 

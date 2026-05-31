@@ -15,6 +15,7 @@ from app.core.config import Settings
 from app.core.exceptions import DatabaseError
 from app.database.mongodb import MongoDB
 from app.models.agent import AgentConfig, AgentConfigCreate
+from app.utils.mongo_query import find_sorted
 
 logger = logging.getLogger(__name__)
 
@@ -115,8 +116,10 @@ class AgentConfigService:
     def list_agents(self) -> list[AgentConfig]:
         """List all agent configurations."""
         try:
-            cursor = MongoDB.agent_configs().find().sort("created_at", -1)
-            return [self._serialize(doc) for doc in cursor]
+            docs = find_sorted(
+                MongoDB.agent_configs(), sort_field="created_at", sort_direction=-1
+            )
+            return [self._serialize(doc) for doc in docs]
         except PyMongoError as exc:
             raise DatabaseError(str(exc)) from exc
 

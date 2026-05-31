@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import agents, calls, crm, customers, elevenlabs, media_stream, tools, webhooks
+from app.api import agents, calls, campaigns, crm, customers, elevenlabs, media_stream, tools, webhooks
 from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.logging_config import setup_logging
@@ -35,9 +35,9 @@ app = FastAPI(
     title="AI Voice Agent Platform",
     description=(
         "Production-grade outbound voice platform for Banking and Financial Services. "
-        "Phase 5: CRM integration with Salesforce, Zoho, and LeadSquared."
+        "Phase 6: Campaign engine with internal MongoDB CRM."
     ),
-    version="5.0.0",
+    version="6.0.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -54,6 +54,7 @@ app.add_middleware(
 
 app.include_router(customers.router)
 app.include_router(calls.router)
+app.include_router(campaigns.router)
 app.include_router(agents.router)
 app.include_router(tools.router)
 app.include_router(crm.router)

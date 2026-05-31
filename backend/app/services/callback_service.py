@@ -10,6 +10,7 @@ from pymongo.errors import PyMongoError
 from app.core.exceptions import DatabaseError
 from app.database.mongodb import MongoDB
 from app.models.tool import CallbackResponse
+from app.utils.mongo_query import find_sorted
 
 logger = logging.getLogger(__name__)
 
@@ -60,20 +61,23 @@ class CallbackService:
     def list_by_customer(self, customer_id: str) -> list[CallbackResponse]:
         """List callbacks for a customer."""
         try:
-            cursor = (
-                MongoDB.callbacks()
-                .find({"customer_id": customer_id})
-                .sort("created_at", -1)
+            docs = find_sorted(
+                MongoDB.callbacks(),
+                {"customer_id": customer_id},
+                sort_field="created_at",
+                sort_direction=-1,
             )
-            return [self._serialize(doc) for doc in cursor]
+            return [self._serialize(doc) for doc in docs]
         except PyMongoError as exc:
             raise DatabaseError(str(exc)) from exc
 
     def list_all(self) -> list[CallbackResponse]:
         """List all scheduled callbacks."""
         try:
-            cursor = MongoDB.callbacks().find().sort("created_at", -1)
-            return [self._serialize(doc) for doc in cursor]
+            docs = find_sorted(
+                MongoDB.callbacks(), sort_field="created_at", sort_direction=-1
+            )
+            return [self._serialize(doc) for doc in docs]
         except PyMongoError as exc:
             raise DatabaseError(str(exc)) from exc
 

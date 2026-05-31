@@ -233,7 +233,7 @@ class ConversationService:
             await self._handle_barge_in(session)
 
     async def finalize_session(self, session: ActiveCallSession) -> None:
-        """Finalize analytics, analyze conversation, and sync to CRM."""
+        """Finalize analytics, analyze conversation, and persist to internal CRM."""
         await self._post_call.process_call_end(session)
 
     async def _handle_barge_in(self, session: ActiveCallSession) -> None:
