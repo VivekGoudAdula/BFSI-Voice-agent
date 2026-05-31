@@ -7,12 +7,16 @@ from app.services.agent_analytics_service import AgentAnalyticsService
 from app.services.agent_config_service import AgentConfigService
 from app.services.banking_service import BankingService
 from app.services.callback_service import CallbackService
+from app.services.call_analysis_service import CallAnalysisService
 from app.services.call_service import CallService
 from app.services.call_session_manager import CallSessionManager
 from app.services.conversation_service import ConversationService
+from app.services.crm_data_service import CRMDataService
+from app.services.crm_sync_service import CRMSyncService
 from app.services.customer_service import CustomerService
 from app.services.elevenlabs_service import ElevenLabsService
 from app.services.groq_service import GroqService
+from app.services.post_call_service import PostCallService
 from app.services.tool_execution_service import ToolExecutionService
 from app.services.twilio_service import TwilioService
 from app.tools.registry import ToolRegistry
@@ -81,6 +85,35 @@ def get_tool_execution_service() -> ToolExecutionService:
     return ToolExecutionService(registry=get_tool_registry())
 
 
+@lru_cache
+def get_crm_data_service() -> CRMDataService:
+    return CRMDataService()
+
+
+@lru_cache
+def get_call_analysis_service() -> CallAnalysisService:
+    return CallAnalysisService(get_settings(), get_groq_service())
+
+
+@lru_cache
+def get_crm_sync_service() -> CRMSyncService:
+    return CRMSyncService(get_settings(), get_crm_data_service())
+
+
+@lru_cache
+def get_post_call_service() -> PostCallService:
+    return PostCallService(
+        settings=get_settings(),
+        analytics_service=get_agent_analytics_service(),
+        call_analysis_service=get_call_analysis_service(),
+        crm_data_service=get_crm_data_service(),
+        crm_sync_service=get_crm_sync_service(),
+        customer_service=get_customer_service(),
+        tool_execution_service=get_tool_execution_service(),
+        callback_service=get_callback_service(),
+    )
+
+
 def get_conversation_service() -> ConversationService:
     return ConversationService(
         session_manager=get_call_session_manager(),
@@ -90,6 +123,7 @@ def get_conversation_service() -> ConversationService:
         agent_analytics_service=get_agent_analytics_service(),
         tool_registry=get_tool_registry(),
         tool_execution_service=get_tool_execution_service(),
+        post_call_service=get_post_call_service(),
     )
 
 

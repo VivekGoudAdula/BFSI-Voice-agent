@@ -88,3 +88,19 @@ class AgentNotFoundError(AppException):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent not found: {agent_id}",
         )
+
+
+class CRMServiceError(AppException):
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"CRM integration error: {message}",
+        )
+
+
+class CRMRecordNotFoundError(AppException):
+    def __init__(self, call_id: str, record_type: str) -> None:
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{record_type} not found for call: {call_id}",
+        )

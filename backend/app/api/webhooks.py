@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.core.config import Settings, get_settings
-from app.core.dependencies import get_call_service, get_call_session_manager, get_twilio_service
+from app.core.dependencies import get_call_service, get_call_session_manager, get_conversation_service, get_post_call_service, get_twilio_service
 from app.services.call_service import CallService
 from app.services.twilio_service import TwilioService
 
@@ -66,6 +66,7 @@ async def twilio_status_callback(
     request: Request,
     call_service: CallService = Depends(get_call_service),
     session_manager=Depends(get_call_session_manager),
+    post_call_service=Depends(get_post_call_service),
 ) -> dict[str, str]:
     form = await request.form()
     call_status = form.get("CallStatus", "unknown")
@@ -89,7 +90,9 @@ async def twilio_status_callback(
     if mapped == "completed" and call_sid:
         session = session_manager.get_session_by_call_sid(call_sid)
         if session:
-            session_manager.end_session(session.stream_sid)
+            ended_session = session_manager.end_session(session.stream_sid)
+            if ended_session:
+                await post_call_service.process_call_end(ended_session)
 
     logger.info(
         "Twilio status callback | call_id=%s status=%s",

@@ -1,0 +1,36 @@
+{
+  "contact": {
+    "customer_id": "External_Id__c",
+    "name": "Name",
+    "phone": "Phone",
+    "loan_id": "Loan_Account__c"
+  },
+  "note": {
+    "summary": "Title",
+    "transcript": "Body",
+    "call_outcome": "Call_Outcome__c"
+  },
+  "activity": {
+    "summary": "Subject",
+    "call_outcome": "Status",
+    "duration_seconds": "DurationInMinutes",
+    "call_sid": "CallSid__c"
+  },
+  "task": {
+    "summary": "Subject",
+    "follow_up_date": "ActivityDate",
+    "follow_up_time": "Description",
+    "notes": "Description"
+  },
+  "lead_status": {
+    "INTERESTED": "Working - Contacted",
+    "NOT_INTERESTED": "Closed - Not Converted",
+    "CALLBACK_REQUESTED": "Working - Callback Scheduled",
+    "PAYMENT_PROMISED": "Working - Payment Promised",
+    "PAYMENT_COMPLETED": "Closed - Converted",
+    "ESCALATED": "Escalated",
+    "NO_RESPONSE": "Open - Not Contacted",
+    "WRONG_NUMBER": "Closed - Wrong Number",
+    "DISCONNECTED": "Closed - Disconnected"
+  }
+}

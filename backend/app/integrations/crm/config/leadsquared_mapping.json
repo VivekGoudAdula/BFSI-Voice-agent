@@ -1,0 +1,36 @@
+{
+  "contact": {
+    "customer_id": "ProspectID",
+    "name": "FirstName",
+    "phone": "Phone",
+    "loan_id": "mx_Loan_ID"
+  },
+  "note": {
+    "summary": "Note",
+    "transcript": "NotText",
+    "call_outcome": "mx_Call_Outcome"
+  },
+  "activity": {
+    "summary": "ActivityEventName",
+    "call_outcome": "Status",
+    "duration_seconds": "Duration",
+    "call_sid": "mx_Call_SID"
+  },
+  "task": {
+    "summary": "Name",
+    "follow_up_date": "DueDate",
+    "follow_up_time": "EndTime",
+    "notes": "Description"
+  },
+  "lead_status": {
+    "INTERESTED": "Interested",
+    "NOT_INTERESTED": "Not Interested",
+    "CALLBACK_REQUESTED": "Callback Requested",
+    "PAYMENT_PROMISED": "Payment Promised",
+    "PAYMENT_COMPLETED": "Payment Completed",
+    "ESCALATED": "Escalated",
+    "NO_RESPONSE": "No Response",
+    "WRONG_NUMBER": "Wrong Number",
+    "DISCONNECTED": "Disconnected"
+  }
+}

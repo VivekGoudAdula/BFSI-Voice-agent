@@ -14,6 +14,7 @@ from app.services.agent_config_service import AgentConfigService
 from app.services.call_session_manager import ActiveCallSession, CallSessionManager
 from app.services.elevenlabs_service import ElevenLabsService
 from app.services.groq_service import GroqService
+from app.services.post_call_service import PostCallService
 from app.services.tool_execution_service import ToolExecutionService
 from app.tools.base import ToolContext
 from app.tools.registry import ToolRegistry
@@ -34,6 +35,7 @@ class ConversationService:
         agent_analytics_service: AgentAnalyticsService,
         tool_registry: ToolRegistry,
         tool_execution_service: ToolExecutionService,
+        post_call_service: PostCallService,
     ) -> None:
         self._session_manager = session_manager
         self._groq = groq_service
@@ -42,6 +44,7 @@ class ConversationService:
         self._analytics = agent_analytics_service
         self._tool_registry = tool_registry
         self._tool_executor = tool_execution_service
+        self._post_call = post_call_service
         self._engine = AgentEngine()
 
     async def play_greeting(self, session: ActiveCallSession) -> None:
@@ -230,26 +233,8 @@ class ConversationService:
             await self._handle_barge_in(session)
 
     async def finalize_session(self, session: ActiveCallSession) -> None:
-        """Finalize analytics when a call session ends."""
-        if not session.analytics_id:
-            return
-
-        reminder_successful = (
-            session.identity_verified
-            and session.current_state == ConversationState.EMI_DISCUSSION
-            and not session.objections_raised
-        )
-
-        self._analytics.end_conversation(
-            session.analytics_id,
-            final_state=session.current_state,
-            identity_verified=session.identity_verified,
-            reminder_successful=reminder_successful,
-            objections_raised=session.objections_raised,
-            escalation_triggered=session.current_state == ConversationState.ESCALATION,
-            escalation_reason=session.escalation_reason,
-            started_at=session.started_at,
-        )
+        """Finalize analytics, analyze conversation, and sync to CRM."""
+        await self._post_call.process_call_end(session)
 
     async def _handle_barge_in(self, session: ActiveCallSession) -> None:
         await self._session_manager.cancel_playback(session)

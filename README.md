@@ -1,6 +1,6 @@
 # AI Voice Agent Platform
 
-Phase 4: action-taking BFSI banking assistant with LLM-driven tool calling, mock CBS integration, and audit logging.
+Phase 5: CRM integration with Salesforce, Zoho CRM, and LeadSquared — automatic post-call sync, conversation analysis, and lead classification.
 
 ## Stack
 
@@ -13,6 +13,7 @@ Phase 4: action-taking BFSI banking assistant with LLM-driven tool calling, mock
 | TTS | ElevenLabs |
 | Agent Engine | Configurable multi-agent framework |
 | Tools | Banking actions (EMI, loans, callbacks, payment links, transfer) |
+| CRM | Salesforce, Zoho CRM, LeadSquared (provider pattern) |
 | Frontend | React, Vite, TypeScript |
 
 ## Quick Start
@@ -139,6 +140,53 @@ The LLM never invents banking data — it always calls tools and uses the return
 
 - `callbacks` — scheduled callback records
 - `tool_execution_logs` — tool name, arguments, result, execution time
+
+## Phase 5 — CRM Integration
+
+After every call, the platform automatically:
+
+- Generates conversation summaries (Groq)
+- Classifies lead status and call outcome
+- Extracts follow-up dates and creates callbacks
+- Syncs data to CRM (Salesforce / Zoho / LeadSquared)
+- Logs all CRM sync attempts with retry (1 min, 5 min, 15 min)
+
+### Architecture
+
+```
+Customer → Voice Call → Agent Conversation → Tool Calls
+    → Conversation Ends → Call Analysis → CRM Mapping Engine
+    → CRM Connector → Salesforce / Zoho / LeadSquared
+```
+
+### CRM API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/crm/sync-logs` | CRM synchronization audit logs |
+| GET | `/crm/summary/{call_id}` | Conversation summary |
+| GET | `/crm/outcome/{call_id}` | Call outcome classification |
+| GET | `/crm/status/{call_id}` | Lead status update |
+| GET | `/crm/analytics/summary` | CRM-enriched analytics |
+
+### CRM configuration
+
+Set in `backend/.env`:
+
+| Variable | Description |
+|----------|-------------|
+| `CRM_ENABLED` | Enable/disable CRM sync (default: true) |
+| `CRM_PROVIDER` | `salesforce`, `zoho`, or `leadsquared` |
+| `CRM_MOCK_MODE` | Mock CRM API when credentials absent (default: true) |
+
+Provider-specific credentials are documented in `backend/.env.example`.
+
+### MongoDB collections (Phase 5)
+
+- `conversation_summaries` — AI-generated call summaries
+- `lead_status_updates` — lead status classifications
+- `call_outcomes` — call outcome records
+- `crm_sync_logs` — CRM sync status, attempts, errors
 
 ## Documentation
 

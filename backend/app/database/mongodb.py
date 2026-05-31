@@ -79,3 +79,19 @@ class MongoDB:
     @classmethod
     def tool_execution_logs(cls) -> Collection:
         return cls.get_db()["tool_execution_logs"]
+
+    @classmethod
+    def crm_sync_logs(cls) -> Collection:
+        return cls.get_db()["crm_sync_logs"]
+
+    @classmethod
+    def conversation_summaries(cls) -> Collection:
+        return cls.get_db()["conversation_summaries"]
+
+    @classmethod
+    def lead_status_updates(cls) -> Collection:
+        return cls.get_db()["lead_status_updates"]
+
+    @classmethod
+    def call_outcomes(cls) -> Collection:
+        return cls.get_db()["call_outcomes"]

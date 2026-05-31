@@ -42,6 +42,30 @@ class Settings(BaseSettings):
     mongodb_uri: str = "mongodb://localhost:27017"
     database_name: str = "voice_agent"
 
+    # CRM Integration (Phase 5)
+    crm_enabled: bool = True
+    crm_provider: str = "salesforce"
+    crm_mock_mode: bool = True
+
+    # Salesforce
+    salesforce_client_id: str = ""
+    salesforce_client_secret: str = ""
+    salesforce_username: str = ""
+    salesforce_password: str = ""
+    salesforce_security_token: str = ""
+    salesforce_instance_url: str = "https://login.salesforce.com"
+
+    # Zoho CRM
+    zoho_client_id: str = ""
+    zoho_client_secret: str = ""
+    zoho_refresh_token: str = ""
+    zoho_api_domain: str = "https://www.zohoapis.com"
+
+    # LeadSquared
+    leadsquared_access_key: str = ""
+    leadsquared_secret_key: str = ""
+    leadsquared_host: str = "https://api-in21.leadsquared.com"
+
     # Application
     base_url: str = "http://localhost:8000"
     audio_storage_path: str = "./storage/audio"
