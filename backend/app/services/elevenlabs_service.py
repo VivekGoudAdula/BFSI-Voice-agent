@@ -98,9 +98,11 @@ class ElevenLabsService:
         response.raise_for_status()
         return response.json()
 
-    async def _resolve_voice_id(self, client: httpx.AsyncClient) -> str:
+    async def _resolve_voice_id(
+        self, client: httpx.AsyncClient, voice_id: str | None = None
+    ) -> str:
         """Pick a voice that works on the free-tier API."""
-        preferred = self._voice_id or DEFAULT_FREE_VOICE_ID
+        preferred = voice_id or self._voice_id or DEFAULT_FREE_VOICE_ID
         voice = await self._get_voice(client, preferred)
 
         if voice and self.is_voice_api_usable_on_free(voice):
@@ -138,7 +140,7 @@ class ElevenLabsService:
 
         return DEFAULT_FREE_VOICE_ID
 
-    async def generate_audio(self, text: str) -> tuple[str, Path]:
+    async def generate_audio(self, text: str, voice_id: str | None = None) -> tuple[str, Path]:
         """
         Generate speech from text and persist to local storage.
 
@@ -149,7 +151,7 @@ class ElevenLabsService:
             raise ElevenLabsServiceError("ELEVENLABS_API_KEY must be configured")
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            voice_id = await self._resolve_voice_id(client)
+            voice_id = await self._resolve_voice_id(client, voice_id)
 
             url = ELEVENLABS_TTS_URL.format(voice_id=voice_id)
             headers = {
@@ -210,7 +212,9 @@ class ElevenLabsService:
 
         return filename, file_path
 
-    async def generate_response_audio(self, text: str) -> bytes:
+    async def generate_response_audio(
+        self, text: str, voice_id: str | None = None
+    ) -> bytes:
         """
         Generate telephony-ready mulaw 8 kHz audio for real-time playback.
 
@@ -223,7 +227,7 @@ class ElevenLabsService:
             raise ElevenLabsServiceError("ELEVENLABS_API_KEY must be configured")
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            voice_id = await self._resolve_voice_id(client)
+            voice_id = await self._resolve_voice_id(client, voice_id)
 
             url = ELEVENLABS_TTS_URL.format(voice_id=voice_id)
             headers = {

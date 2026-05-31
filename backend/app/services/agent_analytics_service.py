@@ -10,7 +10,7 @@ from pymongo.errors import PyMongoError
 from app.agents.states import ConversationState
 from app.core.exceptions import DatabaseError
 from app.database.mongodb import MongoDB
-from app.models.agent import AnalyticsSummary, ConversationAnalytics
+from app.models.agent import AnalyticsSummary, AgentAnalyticsRecord, ConversationAnalytics
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +144,112 @@ class AgentAnalyticsService:
             )
         except PyMongoError as exc:
             logger.error("Failed to finalize analytics: %s", exc)
+
+    def record_call_outcome(
+        self,
+        *,
+        agent_id: str,
+        successful: bool = False,
+        escalated: bool = False,
+        callback: bool = False,
+        duration_seconds: float | None = None,
+    ) -> None:
+        """Increment per-agent analytics counters."""
+        if not agent_id:
+            return
+        self._update_agent_analytics(
+            agent_id=agent_id,
+            successful=successful,
+            escalated=escalated,
+            callback=callback,
+            duration=duration_seconds,
+        )
+
+    def get_agent_analytics(self, agent_id: str) -> Optional[AgentAnalyticsRecord]:
+        """Fetch aggregated analytics for a specific agent."""
+        try:
+            doc = MongoDB.agent_analytics().find_one({"agent_id": agent_id})
+        except PyMongoError as exc:
+            raise DatabaseError(str(exc)) from exc
+        return self._serialize_agent_analytics(doc) if doc else None
+
+    def list_agent_analytics(self) -> list[AgentAnalyticsRecord]:
+        try:
+            docs = MongoDB.agent_analytics().find().sort("agent_id", 1)
+            return [self._serialize_agent_analytics(doc) for doc in docs]
+        except PyMongoError as exc:
+            raise DatabaseError(str(exc)) from exc
+
+    def _get_analytics_doc(self, analytics_id: str) -> dict[str, Any] | None:
+        try:
+            oid = ObjectId(analytics_id)
+            return MongoDB.conversation_analytics().find_one({"_id": oid})
+        except Exception:
+            return None
+
+    def _update_agent_analytics(
+        self,
+        *,
+        agent_id: str,
+        successful: bool = False,
+        escalated: bool = False,
+        callback: bool = False,
+        duration: float | None = None,
+        tools_used: list[str] | None = None,
+    ) -> None:
+        if not agent_id:
+            return
+
+        now = datetime.now(timezone.utc)
+        increments: dict[str, Any] = {"total_calls": 1}
+        if successful:
+            increments["successful_calls"] = 1
+        if escalated:
+            increments["escalations"] = 1
+        if callback or (tools_used and "schedule_callback" in tools_used):
+            increments["callbacks"] = 1
+
+        try:
+            collection = MongoDB.agent_analytics()
+            collection.update_one(
+                {"agent_id": agent_id},
+                {
+                    "$inc": increments,
+                    "$set": {"updated_at": now},
+                    "$setOnInsert": {
+                        "agent_id": agent_id,
+                        "avg_duration": 0.0,
+                        "created_at": now,
+                    },
+                },
+                upsert=True,
+            )
+            if duration is not None:
+                doc = collection.find_one({"agent_id": agent_id})
+                if doc:
+                    total = doc.get("total_calls", 1)
+                    prev_avg = doc.get("avg_duration", 0.0)
+                    new_avg = ((prev_avg * (total - 1)) + duration) / total
+                    collection.update_one(
+                        {"agent_id": agent_id},
+                        {"$set": {"avg_duration": round(new_avg, 1)}},
+                    )
+        except PyMongoError as exc:
+            logger.error("Failed to update agent analytics for %s: %s", agent_id, exc)
+
+    @staticmethod
+    def _serialize_agent_analytics(doc: dict[str, Any]) -> AgentAnalyticsRecord:
+        return AgentAnalyticsRecord(
+            id=str(doc["_id"]),
+            agent_id=doc["agent_id"],
+            total_calls=doc.get("total_calls", 0),
+            successful_calls=doc.get("successful_calls", 0),
+            escalations=doc.get("escalations", 0),
+            callbacks=doc.get("callbacks", 0),
+            avg_duration=doc.get("avg_duration", 0.0),
+            created_at=doc.get("created_at"),
+            updated_at=doc.get("updated_at"),
+        )
 
     def get_by_call_id(self, call_id: str) -> Optional[ConversationAnalytics]:
         """Fetch analytics for a specific call."""

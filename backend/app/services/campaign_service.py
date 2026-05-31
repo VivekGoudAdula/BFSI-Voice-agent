@@ -24,6 +24,7 @@ from app.utils.mongo_query import find_sorted
 
 if TYPE_CHECKING:
     from app.services.campaign_queue_service import CampaignQueueService
+    from app.agents.manager import AgentManager
 
 logger = logging.getLogger(__name__)
 
@@ -38,20 +39,30 @@ class CampaignService:
         repository: CampaignRepository,
         settings: Settings,
         queue_service: Optional["CampaignQueueService"] = None,
+        agent_manager: Optional["AgentManager"] = None,
     ) -> None:
         self._repo = repository
         self._settings = settings
         self._queue = queue_service
+        self._agent_manager = agent_manager
 
     def set_queue_service(self, queue_service: "CampaignQueueService") -> None:
         """Late-bind queue service to avoid circular imports."""
         self._queue = queue_service
 
+    def set_agent_manager(self, agent_manager: "AgentManager") -> None:
+        self._agent_manager = agent_manager
+
     def create_campaign(self, data: CampaignCreateRequest) -> CampaignResponse:
-        campaign_id = self._repo.create_campaign(data.name, data.description)
+        campaign_id = self._repo.create_campaign(
+            data.name, data.description, data.agent_id
+        )
         doc = self._repo.get_campaign(campaign_id)
         if not doc:
             raise CampaignNotFoundError(campaign_id)
+
+        if self._agent_manager:
+            self._agent_manager.map_campaign_agent(campaign_id, data.agent_id)
 
         log_with_context(
             logger,

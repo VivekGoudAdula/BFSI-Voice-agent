@@ -21,6 +21,7 @@ from app.database.mongodb import MongoDB
 from app.models.call import AgentCallContext, CallResponse
 from app.models.conversation import ConversationSessionResponse, TranscriptResponse
 from app.services.agent_config_service import AgentConfigService
+from app.agents.manager import AgentManager
 from app.services.call_session_manager import CallSessionManager
 from app.services.customer_service import CustomerService
 from app.services.elevenlabs_service import ElevenLabsService
@@ -59,12 +60,14 @@ class CallService:
         twilio_service: TwilioService,
         session_manager: CallSessionManager,
         agent_config_service: AgentConfigService,
+        agent_manager: AgentManager,
     ) -> None:
         self._customer_service = customer_service
         self._elevenlabs = elevenlabs_service
         self._twilio = twilio_service
         self._session_manager = session_manager
         self._agent_configs = agent_config_service
+        self._agent_manager = agent_manager
         self._engine = AgentEngine()
         self._settings = get_settings()
 
@@ -94,7 +97,7 @@ class CallService:
             "Initiating agent call for customer",
             customer_id=customer_id,
             phone=phone,
-            agent_id=agent_config.id,
+            agent_id=agent_config.agent_id or agent_config.id,
             agent_name=agent_config.agent_name,
             event="call_flow_started",
         )
@@ -107,7 +110,7 @@ class CallService:
             "twilio_call_sid": "",
             "audio_file": None,
             "mode": "conversational",
-            "agent_id": agent_config.id or "",
+            "agent_id": agent_config.agent_id or agent_config.id or "",
             "agent_name": agent_config.agent_name,
             "agent_context": ctx_dict,
             "campaign_id": campaign_id or None,
@@ -167,16 +170,8 @@ class CallService:
         return _serialize_call(call_doc)
 
     def _resolve_agent(self, agent_id: str):
-        if agent_id:
-            agent = self._agent_configs.get_agent_by_id(agent_id)
-            if not agent:
-                raise AgentNotFoundError(agent_id)
-            return agent
-
-        agent = self._agent_configs.get_default_agent()
-        if not agent:
-            raise AgentNotFoundError("default")
-        return agent
+        runtime = self._agent_manager.resolve_agent(agent_id)
+        return runtime.to_agent_config()
 
     def get_calls(self) -> list[CallResponse]:
         try:
@@ -239,9 +234,14 @@ class CallService:
         agent_id = call.get("agent_id", "")
         agent_config = None
         if agent_id:
-            agent_config = self._agent_configs.get_agent_by_id(agent_id)
+            try:
+                runtime = self._agent_manager.load_agent(agent_id)
+                agent_config = runtime.to_agent_config()
+            except Exception:
+                agent_config = None
         if not agent_config:
-            agent_config = self._agent_configs.get_default_agent()
+            runtime = self._agent_manager.get_default_agent()
+            agent_config = runtime.to_agent_config()
 
         greeting = ""
         if agent_config:
@@ -253,7 +253,7 @@ class CallService:
         return {
             "customer_id": str(call["customer_id"]),
             "customer_name": customer["name"],
-            "agent_id": agent_config.id if agent_config else "",
+            "agent_id": agent_config.agent_id if agent_config else "",
             "agent_config": agent_config,
             "agent_context": call.get("agent_context", {}),
             "greeting": greeting,

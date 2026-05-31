@@ -41,6 +41,7 @@ class CampaignCreateRequest(BaseModel):
 
     name: str = Field(..., min_length=1, examples=["EMI Reminder Campaign"])
     description: str = Field(default="", examples=["June EMI Reminder"])
+    agent_id: str = Field(default="emi_agent", examples=["emi_agent"])
 
 
 class CampaignResponse(BaseModel):
@@ -51,6 +52,7 @@ class CampaignResponse(BaseModel):
     id: str
     name: str
     description: str = ""
+    agent_id: str = ""
     status: CampaignStatus
     created_at: datetime
     started_at: Optional[datetime] = None

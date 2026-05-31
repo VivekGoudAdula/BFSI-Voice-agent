@@ -3,7 +3,6 @@
 import logging
 from typing import Any
 
-from app.services.agent_config_service import AgentConfigService
 from app.services.banking_service import BankingService
 from app.services.callback_service import CallbackService
 from app.services.customer_service import CustomerService
@@ -11,10 +10,12 @@ from app.services.human_handoff_service import HumanHandoffService
 from app.tools.base import Tool, ToolContext, ToolResult
 from app.tools.banking_tools import (
     CheckEmiDueTool,
+    CreateSupportTicketTool,
     GetLoanDetailsTool,
     ScheduleCallbackTool,
     SendPaymentLinkTool,
     TransferToHumanTool,
+    VerifyCustomerTool,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,6 @@ class ToolRegistry:
         callback_service: CallbackService,
         customer_service: CustomerService,
         human_handoff_service: HumanHandoffService,
-        agent_config_service: AgentConfigService,
     ) -> None:
         self._tools: dict[str, Tool] = {}
         self._register_defaults(
@@ -41,7 +41,6 @@ class ToolRegistry:
             callback_service,
             customer_service,
             human_handoff_service,
-            agent_config_service,
         )
 
     def _register_defaults(
@@ -50,15 +49,16 @@ class ToolRegistry:
         callback_service: CallbackService,
         customer_service: CustomerService,
         human_handoff_service: HumanHandoffService,
-        agent_config_service: AgentConfigService,
     ) -> None:
-        """Register all Phase 4+ banking and handoff tools."""
+        """Register all BFSI agent tools."""
         defaults: list[Tool] = [
             GetLoanDetailsTool(banking_service),
             CheckEmiDueTool(banking_service),
             ScheduleCallbackTool(callback_service),
             SendPaymentLinkTool(banking_service, customer_service),
-            TransferToHumanTool(human_handoff_service, agent_config_service),
+            TransferToHumanTool(human_handoff_service),
+            VerifyCustomerTool(customer_service),
+            CreateSupportTicketTool(),
         ]
         for tool in defaults:
             self.register(tool)
@@ -76,9 +76,22 @@ class ToolRegistry:
         """Return all registered tools."""
         return list(self._tools.values())
 
-    def get_openai_schemas(self) -> list[dict[str, Any]]:
-        """Return OpenAI/Groq-compatible tool schemas for all registered tools."""
-        return [tool.to_openai_schema() for tool in self._tools.values()]
+    def get_openai_schemas(
+        self, tool_names: list[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Return OpenAI/Groq-compatible tool schemas, optionally filtered by name."""
+        if tool_names is None:
+            return [tool.to_openai_schema() for tool in self._tools.values()]
+        return [
+            self._tools[name].to_openai_schema()
+            for name in tool_names
+            if name in self._tools
+        ]
+
+    def validate_tool_names(self, tool_names: list[str]) -> list[str]:
+        """Return list of unknown tool names."""
+        registered = set(self._tools.keys())
+        return [name for name in tool_names if name not in registered]
 
     async def execute(
         self,

@@ -29,11 +29,14 @@ class CampaignRepository:
 
     # --- Campaigns ---
 
-    def create_campaign(self, name: str, description: str = "") -> str:
+    def create_campaign(
+        self, name: str, description: str = "", agent_id: str = ""
+    ) -> str:
         now = datetime.now(timezone.utc)
         doc: dict[str, Any] = {
             "name": name.strip(),
             "description": description.strip(),
+            "agent_id": agent_id.strip(),
             "status": CampaignStatus.DRAFT.value,
             "created_at": now,
             "started_at": None,
@@ -327,6 +330,7 @@ class CampaignRepository:
             id=str(doc["_id"]),
             name=doc["name"],
             description=doc.get("description", ""),
+            agent_id=doc.get("agent_id", ""),
             status=CampaignStatus(doc["status"]),
             created_at=doc["created_at"],
             started_at=doc.get("started_at"),

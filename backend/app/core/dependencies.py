@@ -3,9 +3,12 @@
 from functools import lru_cache
 
 from app.core.config import Settings, get_settings
+from app.repositories.agent_repository import AgentRepository
 from app.repositories.campaign_repository import CampaignRepository
 from app.repositories.compliance_repository import ComplianceRepository
 from app.repositories.handoff_repository import HandoffRepository
+from app.agents.loader import AgentLoader
+from app.agents.manager import AgentManager
 from app.services.agent_analytics_service import AgentAnalyticsService
 from app.services.agent_config_service import AgentConfigService
 from app.services.audit_service import AuditService
@@ -90,8 +93,38 @@ def get_call_session_manager() -> CallSessionManager:
 
 
 @lru_cache
+def get_agent_repository() -> AgentRepository:
+    return AgentRepository()
+
+
+@lru_cache
 def get_agent_config_service() -> AgentConfigService:
     return AgentConfigService(get_settings())
+
+
+@lru_cache
+def get_tool_registry() -> ToolRegistry:
+    return ToolRegistry(
+        banking_service=get_banking_service(),
+        callback_service=get_callback_service(),
+        customer_service=get_customer_service(),
+        human_handoff_service=get_human_handoff_service(),
+    )
+
+
+@lru_cache
+def get_agent_loader() -> AgentLoader:
+    return AgentLoader(tool_registry=get_tool_registry())
+
+
+@lru_cache
+def get_agent_manager() -> AgentManager:
+    return AgentManager(
+        repository=get_agent_repository(),
+        loader=get_agent_loader(),
+        tool_registry=get_tool_registry(),
+        settings=get_settings(),
+    )
 
 
 @lru_cache
@@ -148,17 +181,6 @@ def get_handoff_service() -> HandoffService:
 
 
 @lru_cache
-def get_tool_registry() -> ToolRegistry:
-    return ToolRegistry(
-        banking_service=get_banking_service(),
-        callback_service=get_callback_service(),
-        customer_service=get_customer_service(),
-        human_handoff_service=get_human_handoff_service(),
-        agent_config_service=get_agent_config_service(),
-    )
-
-
-@lru_cache
 def get_tool_execution_service() -> ToolExecutionService:
     return ToolExecutionService(
         registry=get_tool_registry(),
@@ -196,6 +218,7 @@ def get_campaign_service() -> CampaignService:
     service = CampaignService(
         repository=get_campaign_repository(),
         settings=get_settings(),
+        agent_manager=get_agent_manager(),
     )
     service.set_queue_service(get_campaign_queue_service())
     return service
@@ -223,6 +246,7 @@ def get_conversation_service() -> ConversationService:
         groq_service=get_groq_service(),
         elevenlabs_service=get_elevenlabs_service(),
         agent_config_service=get_agent_config_service(),
+        agent_manager=get_agent_manager(),
         agent_analytics_service=get_agent_analytics_service(),
         tool_registry=get_tool_registry(),
         tool_execution_service=get_tool_execution_service(),
@@ -238,4 +262,5 @@ def get_call_service() -> CallService:
         twilio_service=get_twilio_service(),
         session_manager=get_call_session_manager(),
         agent_config_service=get_agent_config_service(),
+        agent_manager=get_agent_manager(),
     )

@@ -69,6 +69,18 @@ class MongoDB:
         return cls.get_db()["agent_configs"]
 
     @classmethod
+    def agents(cls) -> Collection:
+        return cls.get_db()["agents"]
+
+    @classmethod
+    def campaign_agent_mapping(cls) -> Collection:
+        return cls.get_db()["campaign_agent_mapping"]
+
+    @classmethod
+    def agent_analytics(cls) -> Collection:
+        return cls.get_db()["agent_analytics"]
+
+    @classmethod
     def conversation_analytics(cls) -> Collection:
         return cls.get_db()["conversation_analytics"]
 

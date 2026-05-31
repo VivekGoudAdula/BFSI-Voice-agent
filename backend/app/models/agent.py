@@ -1,11 +1,19 @@
 """Agent configuration, escalation, and analytics domain models."""
 
 from datetime import datetime
+from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agents.states import ConversationState
+
+
+class AgentStatus(str, Enum):
+    """Agent lifecycle status."""
+
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
 
 
 class EscalationRule(BaseModel):
@@ -25,17 +33,22 @@ class ObjectionRule(BaseModel):
 
 
 class AgentConfig(BaseModel):
-    """Configurable agent definition stored in MongoDB."""
+    """Runtime agent configuration injected into the conversation engine."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: Optional[str] = None
+    agent_id: str = ""
     agent_name: str
     purpose: str
+    description: str = ""
     language: str = "English"
+    language_code: str = "en"
     voice: str = ""
     system_prompt: str
     rules: list[str] = Field(default_factory=list)
+    compliance_rules: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
     escalation_rules: list[EscalationRule] = Field(default_factory=list)
     objection_rules: list[ObjectionRule] = Field(default_factory=list)
     greeting_template: str = ""
@@ -46,6 +59,7 @@ class AgentConfig(BaseModel):
         "I do not have access to that information right now. "
         "Let me connect you with a banking representative."
     )
+    status: str = "ACTIVE"
     version: int = 1
     is_active: bool = True
     created_at: Optional[datetime] = None
@@ -53,7 +67,7 @@ class AgentConfig(BaseModel):
 
 
 class AgentConfigCreate(BaseModel):
-    """Request body for creating or updating an agent config."""
+    """Legacy request body — prefer AgentCreateRequest for Phase 9."""
 
     agent_name: str
     purpose: str
@@ -67,6 +81,87 @@ class AgentConfigCreate(BaseModel):
     escalation_message: str = ""
     unavailable_info_message: str = ""
     is_active: bool = True
+
+
+class AgentCreateRequest(BaseModel):
+    """Request body for creating a new agent."""
+
+    agent_id: str = Field(..., min_length=2, pattern=r"^[a-z][a-z0-9_]*$")
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    purpose: str = ""
+    status: str = AgentStatus.ACTIVE.value
+    voice_id: str = ""
+    language: str = "en"
+    system_prompt: str = Field(..., min_length=10)
+    tools: list[str] = Field(default_factory=list)
+    compliance_rules: list[str] = Field(default_factory=list)
+    escalation_rules: list[EscalationRule] = Field(default_factory=list)
+    objection_rules: list[ObjectionRule] = Field(default_factory=list)
+    greeting_template: str = ""
+    escalation_message: str = ""
+    unavailable_info_message: str = ""
+
+
+class AgentUpdateRequest(BaseModel):
+    """Request body for updating an agent."""
+
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    purpose: str = ""
+    status: str = AgentStatus.ACTIVE.value
+    voice_id: str = ""
+    language: str = "en"
+    system_prompt: str = Field(..., min_length=10)
+    tools: list[str] = Field(default_factory=list)
+    compliance_rules: list[str] = Field(default_factory=list)
+    escalation_rules: list[EscalationRule] = Field(default_factory=list)
+    objection_rules: list[ObjectionRule] = Field(default_factory=list)
+    greeting_template: str = ""
+    escalation_message: str = ""
+    unavailable_info_message: str = ""
+
+
+class AgentDocument(BaseModel):
+    """Agent record stored in MongoDB and returned by the API."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    agent_id: str
+    name: str
+    description: str = ""
+    purpose: str = ""
+    status: str = AgentStatus.ACTIVE.value
+    voice_id: str = ""
+    language: str = "en"
+    system_prompt: str
+    tools: list[str] = Field(default_factory=list)
+    compliance_rules: list[str] = Field(default_factory=list)
+    escalation_rules: list[EscalationRule] = Field(default_factory=list)
+    objection_rules: list[ObjectionRule] = Field(default_factory=list)
+    greeting_template: str = ""
+    escalation_message: str = ""
+    unavailable_info_message: str = ""
+    version: int = 1
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class AgentAnalyticsRecord(BaseModel):
+    """Per-agent aggregated analytics."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Optional[str] = None
+    agent_id: str
+    total_calls: int = 0
+    successful_calls: int = 0
+    escalations: int = 0
+    callbacks: int = 0
+    avg_duration: float = 0.0
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class EscalationResult(BaseModel):

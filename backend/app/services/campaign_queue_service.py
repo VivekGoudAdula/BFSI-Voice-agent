@@ -213,6 +213,11 @@ class CampaignQueueService:
         try:
             from app.models.customer import CustomerCreate
 
+            campaign = self._repo.get_campaign(campaign_id)
+            agent_id = ""
+            if campaign:
+                agent_id = campaign.get("agent_id", "")
+
             customer = self._customer_service.get_or_create(
                 CustomerCreate(
                     name=customer_doc["customer_name"],
@@ -225,6 +230,7 @@ class CampaignQueueService:
 
             call = await call_service.initiate_call(
                 customer_id=customer.id,
+                agent_id=agent_id,
                 agent_context=agent_context,
                 campaign_id=campaign_id,
                 campaign_customer_id=campaign_customer_id,

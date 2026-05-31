@@ -11,7 +11,7 @@ from app.api import agents, calls, campaigns, compliance, crm, customers, eleven
 from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.logging_config import setup_logging
-from app.core.dependencies import get_agent_config_service
+from app.core.dependencies import get_agent_manager
 from app.database.mongodb import MongoDB
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     settings.audio_dir.mkdir(parents=True, exist_ok=True)
     MongoDB.connect(settings)
-    get_agent_config_service().seed_default_agents()
+    get_agent_manager().seed_default_agents()
     logger.info("AI Voice Agent Platform started | base_url=%s", settings.base_url)
     yield
     MongoDB.disconnect()
@@ -35,9 +35,9 @@ app = FastAPI(
     title="AI Voice Agent Platform",
     description=(
         "Production-grade outbound voice platform for Banking and Financial Services. "
-        "Phase 8: Compliance & Audit layer with disclosure, consent, and full traceability."
+        "Phase 9: Multi-Agent Platform with configuration-driven agent management."
     ),
-    version="8.0.0",
+    version="9.0.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",

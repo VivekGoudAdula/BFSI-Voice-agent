@@ -224,6 +224,19 @@ class PostCallService:
             started_at=session.started_at,
         )
 
+        duration = None
+        if session.started_at:
+            duration = (datetime.now(timezone.utc) - session.started_at).total_seconds()
+
+        callback_used = "schedule_callback" in session.tools_used
+        self._analytics.record_call_outcome(
+            agent_id=session.agent_id,
+            successful=reminder_successful or session.current_state == ConversationState.CALL_COMPLETION,
+            escalated=session.current_state == ConversationState.ESCALATION,
+            callback=callback_used,
+            duration_seconds=duration,
+        )
+
     def _create_follow_up_callback(
         self,
         session: ActiveCallSession,

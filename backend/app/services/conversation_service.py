@@ -9,6 +9,7 @@ from app.agents.engine import AgentEngine, MAX_REGENERATION_ATTEMPTS
 from app.agents.states import ConversationState
 from app.core.logging_config import log_with_context
 from app.models.agent import AgentConfig, AgentTurnContext
+from app.agents.manager import AgentManager
 from app.services.agent_analytics_service import AgentAnalyticsService
 from app.services.agent_config_service import AgentConfigService
 from app.services.call_session_manager import ActiveCallSession, CallSessionManager
@@ -33,6 +34,7 @@ class ConversationService:
         groq_service: GroqService,
         elevenlabs_service: ElevenLabsService,
         agent_config_service: AgentConfigService,
+        agent_manager: AgentManager,
         agent_analytics_service: AgentAnalyticsService,
         tool_registry: ToolRegistry,
         tool_execution_service: ToolExecutionService,
@@ -43,6 +45,7 @@ class ConversationService:
         self._groq = groq_service
         self._elevenlabs = elevenlabs_service
         self._agent_configs = agent_config_service
+        self._agent_manager = agent_manager
         self._analytics = agent_analytics_service
         self._tool_registry = tool_registry
         self._tool_executor = tool_execution_service
@@ -181,7 +184,7 @@ class ConversationService:
         groq_messages = [
             m for m in session.messages if m["role"] in ("user", "assistant")
         ]
-        tools = self._tool_registry.get_openai_schemas()
+        tools = self._tool_registry.get_openai_schemas(agent_config.tools or None)
         tool_context = ToolContext(
             customer_id=session.customer_id,
             call_id=session.call_id,
@@ -196,6 +199,7 @@ class ConversationService:
             extra={
                 "escalation_category": turn_result.get("escalation_category", ""),
                 "escalation_reason": turn_result.get("transfer_reason", ""),
+                "agent_purpose": agent_config.purpose,
             },
         )
 
@@ -255,11 +259,13 @@ class ConversationService:
     def _get_agent_config(self, session: ActiveCallSession) -> AgentConfig:
         if session.agent_config:
             return session.agent_config
-        config = self._agent_configs.get_default_agent()
-        if not config:
-            raise RuntimeError("No agent configuration available")
-        session.agent_config = config
-        return config
+        if session.agent_id:
+            runtime = self._agent_manager.load_agent(session.agent_id)
+            session.agent_config = runtime.to_agent_config()
+            return session.agent_config
+        runtime = self._agent_manager.get_default_agent()
+        session.agent_config = runtime.to_agent_config()
+        return session.agent_config
 
     def _build_turn_context(self, session: ActiveCallSession) -> AgentTurnContext:
         return AgentTurnContext(
@@ -302,7 +308,9 @@ class ConversationService:
         session.playback_cancelled = False
         session.is_ai_speaking = True
 
-        audio_bytes = await self._elevenlabs.generate_response_audio(text)
+        agent_config = self._get_agent_config(session)
+        voice_id = agent_config.voice or None
+        audio_bytes = await self._elevenlabs.generate_response_audio(text, voice_id=voice_id)
 
         if session.playback_cancelled:
             session.is_ai_speaking = False

@@ -1,111 +1,153 @@
-"""Agent configuration and analytics endpoints."""
-
-from fastapi import APIRouter, Depends, status
-
-from app.core.dependencies import get_agent_analytics_service, get_agent_config_service
-from app.core.exceptions import AgentNotFoundError
-from app.models.agent import (
-    AgentConfig,
-    AgentConfigCreate,
-    AnalyticsSummary,
-    ConversationAnalytics,
-)
-from app.services.agent_analytics_service import AgentAnalyticsService
-from app.services.agent_config_service import AgentConfigService
-
-router = APIRouter(prefix="/agents", tags=["Agents"])
-
-
-@router.get(
-    "",
-    response_model=list[AgentConfig],
-    summary="List all agent configurations",
-)
-def list_agents(
-    service: AgentConfigService = Depends(get_agent_config_service),
-) -> list[AgentConfig]:
-    return service.list_agents()
-
-
-@router.get(
-    "/default",
-    response_model=AgentConfig,
-    summary="Get the default active agent",
-)
-def get_default_agent(
-    service: AgentConfigService = Depends(get_agent_config_service),
-) -> AgentConfig:
-    agent = service.get_default_agent()
-    if not agent:
-        raise AgentNotFoundError("default")
-    return agent
-
-
-@router.get(
-    "/analytics/summary",
-    response_model=AnalyticsSummary,
-    summary="Get aggregated conversation analytics",
-)
-def get_analytics_summary(
-    service: AgentAnalyticsService = Depends(get_agent_analytics_service),
-) -> AnalyticsSummary:
-    return service.get_summary()
-
-
-@router.get(
-    "/analytics/call/{call_id}",
-    response_model=ConversationAnalytics,
-    summary="Get analytics for a specific call",
-)
-def get_call_analytics(
-    call_id: str,
-    service: AgentAnalyticsService = Depends(get_agent_analytics_service),
-) -> ConversationAnalytics:
-    analytics = service.get_by_call_id(call_id)
-    if not analytics:
-        raise AgentNotFoundError(f"analytics:{call_id}")
-    return analytics
-
-
-@router.post(
-    "",
-    response_model=AgentConfig,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a new agent configuration",
-)
-def create_agent(
-    payload: AgentConfigCreate,
-    service: AgentConfigService = Depends(get_agent_config_service),
-) -> AgentConfig:
-    return service.create_agent(payload)
-
-
-@router.get(
-    "/{agent_id}",
-    response_model=AgentConfig,
-    summary="Get agent configuration by ID",
-)
-def get_agent(
-    agent_id: str,
-    service: AgentConfigService = Depends(get_agent_config_service),
-) -> AgentConfig:
-    agent = service.get_agent_by_id(agent_id)
-    if not agent:
-        raise AgentNotFoundError(agent_id)
-    return agent
-
-
-@router.put(
-    "/{agent_id}",
-    response_model=AgentConfig,
-    summary="Update an agent configuration (increments version)",
-)
-def update_agent(
-    agent_id: str,
-    payload: AgentConfigCreate,
-    service: AgentConfigService = Depends(get_agent_config_service),
-) -> AgentConfig:
-    agent = service.update_agent(agent_id, payload)
-    if not agent:
-        raise AgentNotFoundError(agent_id)
-    return agent
+"""Agent configuration and analytics endpoints."""
+
+from fastapi import APIRouter, Depends, status
+
+from app.agents.seed.default_agents import SUPPORTED_LANGUAGES
+from app.core.dependencies import get_agent_analytics_service, get_agent_manager
+from app.core.exceptions import AgentNotFoundError
+from app.models.agent import (
+    AgentAnalyticsRecord,
+    AgentCreateRequest,
+    AgentDocument,
+    AgentUpdateRequest,
+    AnalyticsSummary,
+    ConversationAnalytics,
+)
+from app.services.agent_analytics_service import AgentAnalyticsService
+from app.agents.manager import AgentManager
+
+router = APIRouter(prefix="/agents", tags=["Agents"])
+
+
+@router.get(
+    "",
+    response_model=list[AgentDocument],
+    summary="List all agent configurations",
+)
+def list_agents(
+    manager: AgentManager = Depends(get_agent_manager),
+) -> list[AgentDocument]:
+    return manager.list_agents()
+
+
+@router.get(
+    "/languages",
+    summary="List supported agent languages",
+)
+def list_supported_languages() -> dict[str, str]:
+    return SUPPORTED_LANGUAGES
+
+
+@router.get(
+    "/default",
+    response_model=AgentDocument,
+    summary="Get the default active agent",
+)
+def get_default_agent(
+    manager: AgentManager = Depends(get_agent_manager),
+) -> AgentDocument:
+    runtime = manager.get_default_agent()
+    return manager.get_agent(runtime.agent_id)
+
+
+@router.get(
+    "/analytics/summary",
+    response_model=AnalyticsSummary,
+    summary="Get aggregated conversation analytics",
+)
+def get_analytics_summary(
+    service: AgentAnalyticsService = Depends(get_agent_analytics_service),
+) -> AnalyticsSummary:
+    return service.get_summary()
+
+
+@router.get(
+    "/analytics/agent/{agent_id}",
+    response_model=AgentAnalyticsRecord,
+    summary="Get per-agent aggregated analytics",
+)
+def get_agent_analytics(
+    agent_id: str,
+    service: AgentAnalyticsService = Depends(get_agent_analytics_service),
+) -> AgentAnalyticsRecord:
+    record = service.get_agent_analytics(agent_id)
+    if not record:
+        raise AgentNotFoundError(f"analytics:{agent_id}")
+    return record
+
+
+@router.get(
+    "/analytics/call/{call_id}",
+    response_model=ConversationAnalytics,
+    summary="Get analytics for a specific call",
+)
+def get_call_analytics(
+    call_id: str,
+    service: AgentAnalyticsService = Depends(get_agent_analytics_service),
+) -> ConversationAnalytics:
+    analytics = service.get_by_call_id(call_id)
+    if not analytics:
+        raise AgentNotFoundError(f"analytics:{call_id}")
+    return analytics
+
+
+@router.post(
+    "",
+    response_model=AgentDocument,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new agent configuration",
+)
+def create_agent(
+    payload: AgentCreateRequest,
+    manager: AgentManager = Depends(get_agent_manager),
+) -> AgentDocument:
+    return manager.register(payload)
+
+
+@router.get(
+    "/{agent_id}",
+    response_model=AgentDocument,
+    summary="Get agent configuration by ID or slug",
+)
+def get_agent(
+    agent_id: str,
+    manager: AgentManager = Depends(get_agent_manager),
+) -> AgentDocument:
+    return manager.get_agent(agent_id)
+
+
+@router.put(
+    "/{agent_id}",
+    response_model=AgentDocument,
+    summary="Update an agent configuration (increments version)",
+)
+def update_agent(
+    agent_id: str,
+    payload: AgentUpdateRequest,
+    manager: AgentManager = Depends(get_agent_manager),
+) -> AgentDocument:
+    return manager.update_agent(agent_id, payload)
+
+
+@router.delete(
+    "/{agent_id}",
+    response_model=AgentDocument,
+    summary="Deactivate an agent",
+)
+def deactivate_agent(
+    agent_id: str,
+    manager: AgentManager = Depends(get_agent_manager),
+) -> AgentDocument:
+    return manager.deactivate_agent(agent_id)
+
+
+@router.post(
+    "/{agent_id}/activate",
+    response_model=AgentDocument,
+    summary="Reactivate a deactivated agent",
+)
+def activate_agent(
+    agent_id: str,
+    manager: AgentManager = Depends(get_agent_manager),
+) -> AgentDocument:
+    return manager.activate_agent(agent_id)

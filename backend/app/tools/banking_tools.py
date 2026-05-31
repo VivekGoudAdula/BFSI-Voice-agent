@@ -5,7 +5,6 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.models.handoff import EscalationCategory
-from app.services.agent_config_service import AgentConfigService
 from app.services.banking_service import BankingService
 from app.services.callback_service import CallbackService
 from app.services.customer_service import CustomerService
@@ -222,7 +221,7 @@ class TransferToHumanTool(Tool):
     def __init__(
         self,
         handoff_service: HumanHandoffService,
-        agent_config_service: AgentConfigService,
+        agent_config_service: Any = None,
     ) -> None:
         self._handoff = handoff_service
         self._agent_configs = agent_config_service
@@ -259,8 +258,13 @@ class TransferToHumanTool(Tool):
         if category not in {c.value for c in EscalationCategory}:
             category = EscalationCategory.CUSTOMER_REQUESTED_HUMAN.value
 
-        agent_config = self._agent_configs.get_default_agent()
-        call_reason = agent_config.purpose if agent_config else "Voice Agent Call"
+        agent_config = (
+            self._agent_configs.get_default_agent() if self._agent_configs else None
+        )
+        call_reason = (
+            context.extra.get("agent_purpose")
+            or (agent_config.purpose if agent_config else "Voice Agent Call")
+        )
 
         summary = self._handoff.build_summary_from_messages(
             context.messages,
@@ -297,3 +301,113 @@ class TransferToHumanTool(Tool):
         except Exception as exc:
             logger.error("Human handoff failed: %s", exc)
             return ToolResult(success=False, data={"transferred": False}, error=str(exc))
+
+
+class VerifyCustomerTool(Tool):
+    """Verify customer identity for KYC compliance."""
+
+    name = "verify_customer"
+    description = (
+        "Run KYC identity verification for the customer after verbal identity confirmation. "
+        "Use when the customer has confirmed their identity during a KYC call."
+    )
+
+    def __init__(self, customer_service: CustomerService) -> None:
+        self._customers = customer_service
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "The customer ID",
+                },
+            },
+            "required": ["customer_id"],
+        }
+
+    async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
+        customer_id = arguments.get("customer_id") or context.customer_id
+        if not context.identity_verified:
+            return ToolResult(
+                success=False,
+                data={},
+                error="Identity must be verified before running KYC check.",
+            )
+        customer = self._customers.get_customer_by_id(customer_id)
+        if not customer:
+            return ToolResult(success=False, data={}, error="Customer not found.")
+        return ToolResult(
+            success=True,
+            data={
+                "verified": True,
+                "customer_id": customer_id,
+                "customer_name": customer.get("name", ""),
+                "kyc_status": "pending_review",
+                "message": "KYC verification submitted for backend review.",
+            },
+        )
+
+
+class CreateSupportTicketTool(Tool):
+    """Create a customer support ticket."""
+
+    name = "create_support_ticket"
+    description = (
+        "Create a support ticket for the customer's issue. "
+        "Use when the issue requires backend follow-up or cannot be resolved on the call."
+    )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "The customer ID",
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "Brief subject line for the ticket",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Detailed description of the issue",
+                },
+                "priority": {
+                    "type": "string",
+                    "description": "Priority: low, medium, or high",
+                },
+            },
+            "required": ["customer_id", "subject", "description"],
+        }
+
+    async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
+        customer_id = arguments.get("customer_id") or context.customer_id
+        subject = arguments.get("subject", "Customer support request")
+        description = arguments.get("description", "")
+        priority = arguments.get("priority", "medium")
+
+        ticket_id = f"TKT-{context.call_id[:8].upper()}"
+        logger.info(
+            "Support ticket created | ticket=%s customer=%s subject=%s",
+            ticket_id,
+            customer_id,
+            subject,
+        )
+        return ToolResult(
+            success=True,
+            data={
+                "ticket_id": ticket_id,
+                "customer_id": customer_id,
+                "subject": subject,
+                "description": description,
+                "priority": priority,
+                "status": "open",
+                "call_id": context.call_id,
+            },
+        )
+
