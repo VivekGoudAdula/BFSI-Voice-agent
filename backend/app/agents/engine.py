@@ -1,0 +1,308 @@
+"""Core agent engine — orchestrates prompts, state, escalation, and validation."""
+
+import logging
+import re
+from typing import Any
+
+from app.agents.escalation import EscalationEngine
+from app.agents.objection_handler import ObjectionHandler
+from app.agents.states import ConversationState, infer_next_state
+from app.agents.validator import ResponseValidator
+from app.models.agent import (
+    AgentConfig,
+    AgentTurnContext,
+    EscalationResult,
+    ValidationResult,
+)
+
+logger = logging.getLogger(__name__)
+
+MAX_REGENERATION_ATTEMPTS = 2
+
+TOOL_GUIDANCE = """
+## Tool Usage (CRITICAL)
+You have access to banking tools. You MUST use tools for any customer request involving:
+- Loan details → get_loan_details
+- EMI amount, due date, or payment status → check_emi_due
+- Payment link → send_payment_link
+- Callback scheduling → schedule_callback
+- Human agent / complaint / escalation → transfer_to_human
+
+NEVER invent or guess loan amounts, EMI values, due dates, or account details.
+ALWAYS call the appropriate tool first, then respond using ONLY the tool result data.
+Keep responses to 2-3 natural sentences after receiving tool results.
+If identity is not verified, verify identity before calling account-related tools.
+"""
+
+STATE_GUIDANCE: dict[ConversationState, str] = {
+    ConversationState.GREETING: (
+        "State: GREETING. Introduce yourself as ABC Bank's EMI Reminder Assistant. "
+        "State the purpose of the call and begin identity verification."
+    ),
+    ConversationState.IDENTITY_VERIFICATION: (
+        "State: IDENTITY_VERIFICATION. Confirm you are speaking with the correct person. "
+        "Do NOT discuss account details until identity is confirmed."
+    ),
+    ConversationState.EMI_DISCUSSION: (
+        "State: EMI_DISCUSSION. Share EMI due date and amount ONLY from provided context. "
+        "Offer payment options. Ask if they need any assistance with payment."
+    ),
+    ConversationState.OBJECTION_HANDLING: (
+        "State: OBJECTION_HANDLING. Address the customer's concern calmly using approved responses. "
+        "Do not argue or pressure."
+    ),
+    ConversationState.CALLBACK_SCHEDULING: (
+        "State: CALLBACK_SCHEDULING. Ask for a convenient time for a callback. "
+        "Confirm the time and thank them."
+    ),
+    ConversationState.ESCALATION: (
+        "State: ESCALATION. Inform the customer you are connecting them with a banking representative. "
+        "Be brief and professional."
+    ),
+    ConversationState.CALL_COMPLETION: (
+        "State: CALL_COMPLETION. Thank the customer politely and end the call. "
+        "Keep it brief."
+    ),
+}
+
+
+class AgentEngine:
+    """
+    Configurable agent engine for BFSI voice conversations.
+
+    Supports multiple agent types loaded from MongoDB without hardcoded logic.
+    """
+
+    def __init__(self) -> None:
+        self._escalation = EscalationEngine()
+        self._objections = ObjectionHandler()
+        self._validator = ResponseValidator()
+
+    def build_greeting(
+        self,
+        agent_config: AgentConfig,
+        customer_name: str,
+        agent_context: dict[str, Any] | None = None,
+    ) -> str:
+        """Build the opening greeting from the agent template."""
+        template = agent_config.greeting_template
+        if not template:
+            template = (
+                "Hello {customer_name}. This is ABC Bank calling. "
+                "Am I speaking with {customer_name}?"
+            )
+
+        ctx = agent_context or {}
+        return template.format(
+            customer_name=customer_name,
+            emi_amount=ctx.get("emi_amount", ""),
+            due_date=ctx.get("due_date", ""),
+        )
+
+    def build_system_prompt(
+        self,
+        agent_config: AgentConfig,
+        turn_context: AgentTurnContext,
+    ) -> str:
+        """Assemble the full system prompt with rules, state, and call context."""
+        parts: list[str] = [agent_config.system_prompt]
+
+        if agent_config.rules:
+            parts.append("\n## Agent Rules")
+            for rule in agent_config.rules:
+                parts.append(f"- {rule}")
+
+        parts.append(f"\n## {STATE_GUIDANCE.get(turn_context.current_state, '')}")
+
+        parts.append("\n## Call Context")
+        parts.append(f"- Customer name: {turn_context.customer_name}")
+        parts.append(f"- Identity verified: {turn_context.identity_verified}")
+        parts.append(f"- Current state: {turn_context.current_state.value}")
+
+        ctx = turn_context.agent_context
+        if ctx.get("emi_amount"):
+            parts.append(f"- EMI amount: {ctx['emi_amount']}")
+        if ctx.get("due_date"):
+            parts.append(f"- Due date: {ctx['due_date']}")
+        if ctx.get("loan_account"):
+            parts.append(f"- Loan account: {ctx['loan_account']}")
+        if ctx.get("payment_status"):
+            parts.append(f"- Payment status: {ctx['payment_status']}")
+
+        if not ctx.get("emi_amount") and not ctx.get("due_date"):
+            parts.append(
+                "- NOTE: EMI amount and due date are NOT available. "
+                "Do NOT guess or invent these values."
+            )
+
+        if turn_context.objections_raised:
+            parts.append(
+                f"- Objections raised this call: {', '.join(turn_context.objections_raised)}"
+            )
+
+        parts.append(TOOL_GUIDANCE)
+
+        return "\n".join(parts)
+
+    def check_escalation(
+        self,
+        user_message: str,
+        agent_config: AgentConfig,
+    ) -> EscalationResult:
+        """Evaluate whether the conversation should be escalated."""
+        return self._escalation.check(user_message, agent_config)
+
+    def detect_objection(
+        self,
+        user_message: str,
+        agent_config: AgentConfig,
+    ) -> tuple[str, str] | None:
+        """Detect a customer objection and return scenario + approved response."""
+        return self._objections.detect(user_message, agent_config)
+
+    def validate_response(
+        self,
+        response: str,
+        agent_config: AgentConfig,
+        turn_context: AgentTurnContext,
+        *,
+        tools_used: list[str] | None = None,
+    ) -> ValidationResult:
+        """Validate an AI response before it is spoken."""
+        banking_tools = {"check_emi_due", "get_loan_details"}
+        has_tool_data = bool(tools_used and banking_tools.intersection(tools_used))
+        has_context = has_tool_data or bool(
+            turn_context.agent_context.get("emi_amount")
+            or turn_context.agent_context.get("due_date")
+        )
+        return self._validator.validate(
+            response,
+            agent_config,
+            has_account_context=has_context and turn_context.identity_verified,
+        )
+
+    def get_regeneration_hint(self, violations: list[str]) -> str:
+        """Build hint for response regeneration after validation failure."""
+        return self._validator.build_regeneration_hint(violations)
+
+    def get_fallback_response(self, agent_config: AgentConfig) -> str:
+        """Safe fallback when generation fails validation repeatedly."""
+        return agent_config.unavailable_info_message
+
+    def get_escalation_response(self, agent_config: AgentConfig) -> str:
+        """Approved escalation message."""
+        return agent_config.escalation_message
+
+    def update_turn_context(
+        self,
+        turn_context: AgentTurnContext,
+        user_message: str,
+        *,
+        escalation: EscalationResult | None = None,
+    ) -> AgentTurnContext:
+        """Update conversation state and flags based on the user's message."""
+        text = user_message.lower().strip()
+
+        if escalation and escalation.escalate:
+            turn_context.current_state = ConversationState.ESCALATION
+            return turn_context
+
+        if self._is_identity_confirmed(text):
+            turn_context.identity_verified = True
+
+        if self._is_call_ending(text):
+            turn_context.current_state = ConversationState.CALL_COMPLETION
+            return turn_context
+
+        callback_requested = bool(re.search(
+            r"\b(callback|call back|call me|schedule|later|tomorrow|evening|morning)\b",
+            text,
+            re.IGNORECASE,
+        ))
+
+        objection_detected = False
+        if re.search(r"\b(busy|already paid|no money|stop calling|don't have)\b", text, re.IGNORECASE):
+            objection_detected = True
+
+        turn_context.current_state = infer_next_state(
+            turn_context.current_state,
+            identity_verified=turn_context.identity_verified,
+            objection_detected=objection_detected,
+            callback_requested=callback_requested,
+            escalated=False,
+            call_ending=False,
+        )
+
+        return turn_context
+
+    def process_user_turn(
+        self,
+        agent_config: AgentConfig,
+        turn_context: AgentTurnContext,
+        user_message: str,
+    ) -> dict[str, Any]:
+        """
+        Process a user turn and return guidance for response generation.
+
+        Returns dict with:
+            - escalation: EscalationResult
+            - use_objection_response: bool
+            - objection_response: str
+            - objection_scenario: str
+            - updated_context: AgentTurnContext
+        """
+        escalation = self.check_escalation(user_message, agent_config)
+
+        if escalation.escalate:
+            turn_context.current_state = ConversationState.ESCALATION
+            return {
+                "escalation": escalation,
+                "use_objection_response": False,
+                "objection_response": "",
+                "objection_scenario": "",
+                "updated_context": turn_context,
+                "forced_response": None,
+                "trigger_transfer": True,
+                "transfer_reason": escalation.reason,
+            }
+
+        objection = self.detect_objection(user_message, agent_config)
+        if objection:
+            scenario, response = objection
+            if scenario not in turn_context.objections_raised:
+                turn_context.objections_raised.append(scenario)
+            turn_context.current_state = ConversationState.OBJECTION_HANDLING
+            return {
+                "escalation": escalation,
+                "use_objection_response": True,
+                "objection_response": response,
+                "objection_scenario": scenario,
+                "updated_context": turn_context,
+                "forced_response": None,
+            }
+
+        turn_context = self.update_turn_context(turn_context, user_message)
+        return {
+            "escalation": escalation,
+            "use_objection_response": False,
+            "objection_response": "",
+            "objection_scenario": "",
+            "updated_context": turn_context,
+            "forced_response": None,
+        }
+
+    @staticmethod
+    def _is_identity_confirmed(text: str) -> bool:
+        patterns = [
+            r"\b(yes|yeah|yep|correct|speaking|this is|that's me|that is me)\b",
+            r"\b(i am|i'm)\b",
+        ]
+        return any(re.search(p, text, re.IGNORECASE) for p in patterns)
+
+    @staticmethod
+    def _is_call_ending(text: str) -> bool:
+        patterns = [
+            r"\b(goodbye|bye|thank you.*bye|that's all|nothing else|no thanks)\b",
+            r"\b(hang up|end call|stop now)\b",
+        ]
+        return any(re.search(p, text, re.IGNORECASE) for p in patterns)
