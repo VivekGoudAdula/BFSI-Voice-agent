@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 class CallbackService:
     """Manages scheduled callbacks in MongoDB."""
 
+    def __init__(self, audit_service: Any = None) -> None:
+        self._audit = audit_service
+
     def schedule(
         self,
         customer_id: str,
@@ -51,6 +54,16 @@ class CallbackService:
             time,
         )
 
+        if self._audit and call_id:
+            call_sid = self._resolve_call_sid(call_id)
+            self._audit.on_callback_scheduled(
+                call_sid=call_sid,
+                call_id=call_id,
+                callback_id=str(result.inserted_id),
+                date=date,
+                time=time,
+            )
+
         return {
             "scheduled": True,
             "callback_id": str(result.inserted_id),
@@ -80,6 +93,17 @@ class CallbackService:
             return [self._serialize(doc) for doc in docs]
         except PyMongoError as exc:
             raise DatabaseError(str(exc)) from exc
+
+    @staticmethod
+    def _resolve_call_sid(call_id: str) -> str:
+        try:
+            oid = ObjectId(call_id)
+            doc = MongoDB.calls().find_one({"_id": oid})
+            if doc:
+                return doc.get("twilio_call_sid", call_id)
+        except Exception:
+            pass
+        return call_id
 
     @staticmethod
     def _serialize(doc: dict[str, Any]) -> CallbackResponse:

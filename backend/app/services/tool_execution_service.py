@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 class ToolExecutionService:
     """Executes tools with audit logging to MongoDB."""
 
-    def __init__(self, registry: Any) -> None:
+    def __init__(self, registry: Any, audit_service: Any = None) -> None:
         self._registry = registry
+        self._audit = audit_service
 
     async def execute_and_log(
         self,
@@ -72,6 +73,16 @@ class ToolExecutionService:
             MongoDB.tool_execution_logs().insert_one(doc)
         except PyMongoError as exc:
             logger.error("Failed to log tool execution: %s", exc)
+
+        if self._audit:
+            self._audit.on_tool_executed(
+                call_sid=call_sid,
+                call_id=call_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                result=doc["result"],
+                execution_time_ms=execution_time_ms,
+            )
 
         logger.info(
             "Tool executed | tool=%s success=%s ms=%.1f call_id=%s",

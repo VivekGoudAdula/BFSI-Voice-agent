@@ -10,9 +10,7 @@ from dataclasses import dataclass, field
 
 from datetime import datetime, timezone
 
-from typing import Any, Optional
-
-
+from typing import Any, Optional, TYPE_CHECKING
 
 from bson import ObjectId
 
@@ -50,7 +48,8 @@ from app.models.conversation import (
 logger = logging.getLogger(__name__)
 
 
-
+if TYPE_CHECKING:
+    from app.services.audit_service import AuditService
 
 
 @dataclass
@@ -99,6 +98,14 @@ class ActiveCallSession:
 
     started_at: Optional[datetime] = None
 
+    # Phase 8 — Compliance
+    awaiting_consent: bool = False
+    consent_status: str = ""
+    consent_denied: bool = False
+    pending_greeting: str = ""
+    compliance_disclosure_text: str = ""
+    skip_next_agent_turn: bool = False
+
     messages: list[dict[str, str]] = field(default_factory=list)
 
     is_ai_speaking: bool = False
@@ -129,9 +136,15 @@ class CallSessionManager:
 
 
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        audit_service: Optional["AuditService"] = None,
+    ) -> None:
 
         self._settings = settings
+
+        self._audit = audit_service
 
         self._sessions: dict[str, ActiveCallSession] = {}
 
@@ -283,6 +296,8 @@ class CallSessionManager:
 
             messages=messages,
 
+            pending_greeting=greeting,
+
         )
 
         self._sessions[stream_sid] = session
@@ -355,6 +370,13 @@ class CallSessionManager:
 
         )
 
+        if self._audit:
+            self._audit.on_user_message(
+                call_sid=session.call_sid,
+                call_id=session.call_id,
+                content=content,
+            )
+
         log_with_context(
 
             logger,
@@ -390,6 +412,13 @@ class CallSessionManager:
             content=content,
 
         )
+
+        if self._audit and not session.awaiting_consent:
+            self._audit.on_assistant_message(
+                call_sid=session.call_sid,
+                call_id=session.call_id,
+                content=content,
+            )
 
         log_with_context(
 

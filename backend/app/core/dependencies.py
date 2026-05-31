@@ -4,9 +4,11 @@ from functools import lru_cache
 
 from app.core.config import Settings, get_settings
 from app.repositories.campaign_repository import CampaignRepository
+from app.repositories.compliance_repository import ComplianceRepository
 from app.repositories.handoff_repository import HandoffRepository
 from app.services.agent_analytics_service import AgentAnalyticsService
 from app.services.agent_config_service import AgentConfigService
+from app.services.audit_service import AuditService
 from app.services.banking_service import BankingService
 from app.services.callback_service import CallbackService
 from app.services.call_analysis_service import CallAnalysisService
@@ -14,6 +16,8 @@ from app.services.call_service import CallService
 from app.services.call_session_manager import CallSessionManager
 from app.services.campaign_queue_service import CampaignQueueService
 from app.services.campaign_service import CampaignService
+from app.services.compliance_middleware import ComplianceMiddleware
+from app.services.compliance_service import ComplianceService
 from app.services.escalation_service import EscalationService
 from app.services.handoff_analytics_service import HandoffAnalyticsService
 from app.services.handoff_service import HandoffService
@@ -55,8 +59,34 @@ def get_groq_service() -> GroqService:
 
 
 @lru_cache
+def get_compliance_repository() -> ComplianceRepository:
+    return ComplianceRepository()
+
+
+@lru_cache
+def get_audit_service() -> AuditService:
+    return AuditService(
+        repository=get_compliance_repository(),
+        settings=get_settings(),
+    )
+
+
+@lru_cache
+def get_compliance_middleware() -> ComplianceMiddleware:
+    return ComplianceMiddleware(audit_service=get_audit_service())
+
+
+@lru_cache
+def get_compliance_service() -> ComplianceService:
+    return ComplianceService(
+        repository=get_compliance_repository(),
+        crm_data_service=get_crm_data_service(),
+    )
+
+
+@lru_cache
 def get_call_session_manager() -> CallSessionManager:
-    return CallSessionManager(get_settings())
+    return CallSessionManager(get_settings(), audit_service=get_audit_service())
 
 
 @lru_cache
@@ -76,7 +106,7 @@ def get_banking_service() -> BankingService:
 
 @lru_cache
 def get_callback_service() -> CallbackService:
-    return CallbackService()
+    return CallbackService(audit_service=get_audit_service())
 
 
 @lru_cache
@@ -100,6 +130,7 @@ def get_human_handoff_service() -> HumanHandoffService:
         repository=get_handoff_repository(),
         twilio_service=get_twilio_service(),
         sentiment_service=get_sentiment_service(),
+        audit_service=get_audit_service(),
     )
 
 
@@ -129,12 +160,15 @@ def get_tool_registry() -> ToolRegistry:
 
 @lru_cache
 def get_tool_execution_service() -> ToolExecutionService:
-    return ToolExecutionService(registry=get_tool_registry())
+    return ToolExecutionService(
+        registry=get_tool_registry(),
+        audit_service=get_audit_service(),
+    )
 
 
 @lru_cache
 def get_crm_data_service() -> CRMDataService:
-    return CRMDataService()
+    return CRMDataService(audit_service=get_audit_service())
 
 
 @lru_cache
@@ -177,6 +211,7 @@ def get_post_call_service() -> PostCallService:
         customer_service=get_customer_service(),
         tool_execution_service=get_tool_execution_service(),
         callback_service=get_callback_service(),
+        audit_service=get_audit_service(),
     )
     service.set_campaign_queue_service(get_campaign_queue_service())
     return service
@@ -192,6 +227,7 @@ def get_conversation_service() -> ConversationService:
         tool_registry=get_tool_registry(),
         tool_execution_service=get_tool_execution_service(),
         post_call_service=get_post_call_service(),
+        compliance_middleware=get_compliance_middleware(),
     )
 
 

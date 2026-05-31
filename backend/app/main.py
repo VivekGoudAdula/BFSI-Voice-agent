@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import agents, calls, campaigns, crm, customers, elevenlabs, handoff, media_stream, tools, webhooks
+from app.api import agents, calls, campaigns, compliance, crm, customers, elevenlabs, handoff, media_stream, tools, webhooks
 from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.logging_config import setup_logging
@@ -35,9 +35,9 @@ app = FastAPI(
     title="AI Voice Agent Platform",
     description=(
         "Production-grade outbound voice platform for Banking and Financial Services. "
-        "Phase 7: Human handoff with escalation engine and transfer queue."
+        "Phase 8: Compliance & Audit layer with disclosure, consent, and full traceability."
     ),
-    version="7.0.0",
+    version="8.0.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -60,6 +60,7 @@ app.include_router(handoff.router_queue)
 app.include_router(agents.router)
 app.include_router(tools.router)
 app.include_router(crm.router)
+app.include_router(compliance.router)
 app.include_router(elevenlabs.router)
 app.include_router(webhooks.router)
 app.include_router(media_stream.router)

@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from pymongo.errors import PyMongoError
 
+from app.core.exceptions import DatabaseError
 from app.database.mongodb import MongoDB
 from app.models.crm import (
     CallAnalysisResult,
@@ -21,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 class CRMDataService:
     """Persists call data to MongoDB (internal CRM layer)."""
+
+    def __init__(self, audit_service: Any = None) -> None:
+        self._audit = audit_service
 
     def is_call_processed(self, call_id: str) -> bool:
         """Check if post-call processing already ran for this call."""
@@ -55,6 +59,14 @@ class CRMDataService:
         except PyMongoError as exc:
             raise DatabaseError(str(exc)) from exc
 
+        if self._audit:
+            self._audit.on_crm_updated(
+                call_sid=call_sid,
+                call_id=call_id,
+                action="SUMMARY_CREATED",
+                new_value=analysis.summary[:200],
+            )
+
         doc["_id"] = result.inserted_id
         return self._serialize_summary(doc)
 
@@ -81,6 +93,14 @@ class CRMDataService:
         except PyMongoError as exc:
             raise DatabaseError(str(exc)) from exc
 
+        if self._audit:
+            self._audit.on_crm_updated(
+                call_sid=call_sid,
+                call_id=call_id,
+                action="STATUS_UPDATED",
+                new_value=analysis.lead_status.value,
+            )
+
         doc["_id"] = result.inserted_id
         return self._serialize_lead_status(doc)
 
@@ -105,6 +125,14 @@ class CRMDataService:
             result = MongoDB.call_outcomes().insert_one(doc)
         except PyMongoError as exc:
             raise DatabaseError(str(exc)) from exc
+
+        if self._audit:
+            self._audit.on_crm_updated(
+                call_sid=call_sid,
+                call_id=call_id,
+                action="OUTCOME_RECORDED",
+                new_value=analysis.call_outcome.value,
+            )
 
         doc["_id"] = result.inserted_id
         return self._serialize_outcome(doc)

@@ -51,6 +51,28 @@ class Settings(BaseSettings):
     human_agent_phone: str = ""
     handoff_enabled: bool = True
 
+    # Compliance & Audit (Phase 8)
+    compliance_enabled: bool = True
+    compliance_disclosure_template: str = (
+        "Hello. I am an AI-powered virtual assistant calling on behalf of {bank_name}."
+    )
+    compliance_consent_prompt: str = (
+        "Do I have your permission to continue this conversation?"
+    )
+    compliance_recording_notice: str = (
+        "This call may be monitored and recorded for quality and compliance purposes."
+    )
+    compliance_consent_timeout_seconds: float = 30.0
+    compliance_retention_transcripts_days: int = 2555
+    compliance_retention_audit_logs_days: int = 2555
+    compliance_retention_recordings_days: int = 2555
+    compliance_retention_consent_days: int = 2555
+    compliance_retention_disclosure_days: int = 2555
+    compliance_retention_tool_audit_days: int = 2555
+    compliance_retention_crm_audit_days: int = 2555
+    compliance_retention_escalation_days: int = 2555
+    compliance_retention_events_days: int = 2555
+
     # Application
     base_url: str = "http://localhost:8000"
     audio_storage_path: str = "./storage/audio"

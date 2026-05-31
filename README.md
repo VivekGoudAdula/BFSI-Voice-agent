@@ -2,6 +2,8 @@
 
 Phase 7: Human handoff with escalation engine, transfer queue, and conversation context preservation.
 
+Phase 8: Compliance & Audit layer with AI disclosure, consent tracking, and full regulatory traceability.
+
 ## Stack
 
 | Layer | Technology |
@@ -272,6 +274,57 @@ Customer message → EscalationService + SentimentService
 |----------|-------------|
 | `HUMAN_AGENT_PHONE` | Destination for future live transfer (E.164) |
 | `HANDOFF_ENABLED` | Enable handoff pipeline (default: true) |
+
+## Phase 8 — Compliance & Audit
+
+Every call is fully traceable for BFSI regulatory requirements. The compliance middleware runs before conversation processing and automatically logs all events via the `AuditService`.
+
+### Call flow
+
+```
+Customer → Voice Agent → Compliance Middleware → Conversation Processing → Audit Logger → MongoDB
+```
+
+### At call start
+
+1. **AI disclosure** — configurable text (default: "I am an AI-powered virtual assistant calling on behalf of ABC Bank.")
+2. **Consent capture** — customer must grant permission to continue
+3. If consent denied → call ends gracefully
+
+### Compliance API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/compliance/call/{call_sid}` | Full compliance package for a call |
+| GET | `/compliance/transcript/{call_sid}` | Consolidated transcript |
+| GET | `/compliance/audit/{call_sid}` | Compliance event audit trail |
+| GET | `/compliance/consent/{call_sid}` | Consent record |
+| GET | `/compliance/tool-history/{call_sid}` | Tool execution audit history |
+| GET | `/compliance/dashboard/summary` | Dashboard metrics |
+| GET | `/compliance/retention-policy` | Retention policy framework |
+
+### MongoDB collections (Phase 8)
+
+- `disclosures` — AI disclosure proof (text, played_at)
+- `consents` — CONSENT_GRANTED / CONSENT_DENIED / NO_RESPONSE
+- `call_recordings` — recording metadata (URL references, not audio blobs)
+- `compliance_transcripts` — consolidated messages array per call
+- `prompt_versions` — exact prompts used by agents
+- `call_prompt_usage` — prompt version linked to each call
+- `tool_audit_logs` — every tool execution with arguments and results
+- `crm_audit_logs` — all internal CRM updates
+- `escalation_audit_logs` — escalation history
+- `compliance_events` — source-of-truth event stream
+
+### Configuration
+
+| Variable | Description |
+|----------|-------------|
+| `COMPLIANCE_ENABLED` | Enable compliance middleware (default: true) |
+| `COMPLIANCE_DISCLOSURE_TEMPLATE` | AI disclosure text (`{bank_name}` placeholder) |
+| `COMPLIANCE_CONSENT_PROMPT` | Consent question played after disclosure |
+| `COMPLIANCE_RECORDING_NOTICE` | Optional recording notice appended to disclosure |
+| `COMPLIANCE_RETENTION_*_DAYS` | Retention windows (~2555 days = 7 years). Deletion not implemented. |
 
 ## Documentation
 

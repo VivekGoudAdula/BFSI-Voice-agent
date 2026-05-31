@@ -12,6 +12,7 @@ from app.models.agent import AgentConfig, AgentTurnContext
 from app.services.agent_analytics_service import AgentAnalyticsService
 from app.services.agent_config_service import AgentConfigService
 from app.services.call_session_manager import ActiveCallSession, CallSessionManager
+from app.services.compliance_middleware import ComplianceMiddleware
 from app.services.elevenlabs_service import ElevenLabsService
 from app.services.groq_service import GroqService
 from app.services.post_call_service import PostCallService
@@ -36,6 +37,7 @@ class ConversationService:
         tool_registry: ToolRegistry,
         tool_execution_service: ToolExecutionService,
         post_call_service: PostCallService,
+        compliance_middleware: ComplianceMiddleware | None = None,
     ) -> None:
         self._session_manager = session_manager
         self._groq = groq_service
@@ -45,11 +47,17 @@ class ConversationService:
         self._tool_registry = tool_registry
         self._tool_executor = tool_execution_service
         self._post_call = post_call_service
+        self._compliance = compliance_middleware
         self._engine = AgentEngine()
 
     async def play_greeting(self, session: ActiveCallSession) -> None:
-        """Play the initial AI greeting when the media stream starts."""
-        greeting = session.messages[-1]["content"]
+        """Play compliance disclosure + consent, or the standard greeting."""
+        if self._compliance and self._compliance.enabled:
+            self._compliance.on_call_started(session)
+            await self._compliance.run_pre_call_compliance(session, self)
+            return
+
+        greeting = session.pending_greeting or session.messages[-1]["content"]
         await self._speak(session, greeting)
 
     async def handle_user_transcript(
@@ -73,7 +81,20 @@ class ConversationService:
             if session.is_ai_speaking:
                 await self._handle_barge_in(session)
 
+            if self._compliance and session.awaiting_consent:
+                continue_call = await self._compliance.handle_consent_response(
+                    session, text, self
+                )
+                if not continue_call:
+                    if session.consent_denied:
+                        session.handoff_initiated = True
+                    return
+
             self._session_manager.add_user_message(session, text)
+
+            if session.skip_next_agent_turn:
+                session.skip_next_agent_turn = False
+                return
 
             agent_config = self._get_agent_config(session)
             turn_context = self._build_turn_context(session)

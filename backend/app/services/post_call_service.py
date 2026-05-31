@@ -36,6 +36,7 @@ class PostCallService:
         tool_execution_service: ToolExecutionService,
         callback_service: CallbackService,
         campaign_queue_service: Any = None,
+        audit_service: Any = None,
     ) -> None:
         self._settings = settings
         self._analytics = analytics_service
@@ -45,6 +46,7 @@ class PostCallService:
         self._tool_logs = tool_execution_service
         self._callbacks = callback_service
         self._campaign_queue = campaign_queue_service
+        self._audit = audit_service
         self._processed_calls: set[str] = set()
 
     def set_campaign_queue_service(self, queue_service: Any) -> None:
@@ -113,6 +115,7 @@ class PostCallService:
 
         self._create_follow_up_callback(session, analysis)
         await self._update_campaign_tracking(session.call_id, analysis, duration)
+        self._store_compliance_on_call_end(session, analysis, duration)
 
         log_with_context(
             logger,
@@ -169,6 +172,36 @@ class PostCallService:
             lead_status=analysis.lead_status.value,
             duration_seconds=duration,
         )
+
+    def _store_compliance_on_call_end(
+        self,
+        session: ActiveCallSession,
+        analysis: Any,
+        duration: Optional[float],
+    ) -> None:
+        if not self._audit:
+            return
+
+        self._audit.on_call_ended(
+            call_sid=session.call_sid,
+            call_id=session.call_id,
+            duration_seconds=duration,
+            outcome=analysis.call_outcome.value if analysis else "",
+        )
+
+        call = MongoDB.calls().find_one({"_id": self._to_object_id(session.call_id)})
+        if call and call.get("audio_file"):
+            recording_url = (
+                f"{self._settings.base_url.rstrip('/')}"
+                f"/webhooks/twilio/play/{call['audio_file']}"
+            )
+            self._audit.on_recording_stored(
+                call_sid=session.call_sid,
+                call_id=session.call_id,
+                recording_url=recording_url,
+                duration=duration,
+                storage_provider="local",
+            )
 
     def _finalize_analytics(self, session: ActiveCallSession) -> None:
         if not session.analytics_id:

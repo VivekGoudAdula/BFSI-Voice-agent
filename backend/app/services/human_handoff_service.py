@@ -39,10 +39,12 @@ class HumanHandoffService:
         repository: HandoffRepository,
         twilio_service: TwilioService,
         sentiment_service: Optional[SentimentService] = None,
+        audit_service: Any = None,
     ) -> None:
         self._repo = repository
         self._twilio = twilio_service
         self._sentiment = sentiment_service or SentimentService()
+        self._audit = audit_service
 
     def priority_for_category(self, category: str) -> TransferPriority:
         try:
@@ -133,6 +135,14 @@ class HumanHandoffService:
             reason=reason,
             call_id=call_id,
         )
+
+        if self._audit:
+            self._audit.on_escalation_created(
+                call_sid=call_sid,
+                call_id=call_id,
+                category=category,
+                reason=reason,
+            )
 
         context_dict = context.model_dump() if context else {}
         transcript_id = call_id

@@ -123,3 +123,45 @@ class MongoDB:
     @classmethod
     def handoff_context(cls) -> Collection:
         return cls.get_db()["handoff_context"]
+
+    # Phase 8 — Compliance & Audit
+    @classmethod
+    def disclosures(cls) -> Collection:
+        return cls.get_db()["disclosures"]
+
+    @classmethod
+    def consents(cls) -> Collection:
+        return cls.get_db()["consents"]
+
+    @classmethod
+    def call_recordings(cls) -> Collection:
+        return cls.get_db()["call_recordings"]
+
+    @classmethod
+    def compliance_transcripts(cls) -> Collection:
+        """Consolidated per-call transcripts (messages array)."""
+        return cls.get_db()["compliance_transcripts"]
+
+    @classmethod
+    def prompt_versions(cls) -> Collection:
+        return cls.get_db()["prompt_versions"]
+
+    @classmethod
+    def call_prompt_usage(cls) -> Collection:
+        return cls.get_db()["call_prompt_usage"]
+
+    @classmethod
+    def tool_audit_logs(cls) -> Collection:
+        return cls.get_db()["tool_audit_logs"]
+
+    @classmethod
+    def crm_audit_logs(cls) -> Collection:
+        return cls.get_db()["crm_audit_logs"]
+
+    @classmethod
+    def escalation_audit_logs(cls) -> Collection:
+        return cls.get_db()["escalation_audit_logs"]
+
+    @classmethod
+    def compliance_events(cls) -> Collection:
+        return cls.get_db()["compliance_events"]
