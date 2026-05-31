@@ -13,6 +13,13 @@ class CustomerCreate(BaseModel):
     phone: str = Field(..., examples=["+919876543210"])
 
 
+class CustomerUpdate(BaseModel):
+    """Request body for updating a customer."""
+
+    name: str = Field(..., min_length=1, max_length=200)
+    phone: str = Field(..., examples=["+919876543210"])
+
+
 class CustomerResponse(BaseModel):
     """Customer record returned by the API."""
 
@@ -22,3 +29,12 @@ class CustomerResponse(BaseModel):
     name: str
     phone: str
     created_at: datetime
+
+
+class CustomerListItem(CustomerResponse):
+    """Customer with admin portal enrichment."""
+
+    loan_id: str = ""
+    status: str = "active"
+    last_call_at: Optional[datetime] = None
+    last_call_status: str = ""

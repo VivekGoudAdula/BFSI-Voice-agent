@@ -63,3 +63,21 @@ def find_sorted(
         if limit > 0:
             docs = docs[:limit]
         return docs
+
+
+def find_one_sorted(
+    collection: Collection,
+    query: Optional[dict[str, Any]] = None,
+    *,
+    sort_field: str,
+    sort_direction: int = -1,
+) -> Optional[dict[str, Any]]:
+    """Return the first document from a Cosmos-safe sorted find."""
+    results = find_sorted(
+        collection,
+        query,
+        sort_field=sort_field,
+        sort_direction=sort_direction,
+        limit=1,
+    )
+    return results[0] if results else None

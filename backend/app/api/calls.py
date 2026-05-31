@@ -2,12 +2,27 @@
 
 from fastapi import APIRouter, Depends, status
 
-from app.core.dependencies import get_call_service
+from app.core.dependencies import get_admin_service, get_call_service
+from app.core.exceptions import CallNotFoundError
+from app.models.admin import ActiveCallResponse
 from app.models.call import CallInitiateRequest, CallResponse
 from app.models.conversation import ConversationSessionResponse, TranscriptResponse
-from app.services.call_service import CallService
+from app.services.admin_service import AdminService
+from app.services.call_service import CallService, _serialize_call
 
 router = APIRouter(prefix="/calls", tags=["Calls"])
+
+
+@router.get(
+    "/active",
+    response_model=list[ActiveCallResponse],
+    summary="List active live calls",
+    description="Returns real-time snapshots of in-progress call sessions.",
+)
+def get_active_calls(
+    admin_service: AdminService = Depends(get_admin_service),
+) -> list[ActiveCallResponse]:
+    return admin_service.get_active_calls()
 
 
 @router.post(
@@ -41,6 +56,21 @@ def get_calls(
     service: CallService = Depends(get_call_service),
 ) -> list[CallResponse]:
     return service.get_calls()
+
+
+@router.get(
+    "/{call_id}",
+    response_model=CallResponse,
+    summary="Get call by ID",
+)
+def get_call(
+    call_id: str,
+    service: CallService = Depends(get_call_service),
+) -> CallResponse:
+    call = service.get_call_by_id(call_id)
+    if not call:
+        raise CallNotFoundError(call_id)
+    return _serialize_call(call)
 
 
 @router.get(

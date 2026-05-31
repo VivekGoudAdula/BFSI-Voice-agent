@@ -28,6 +28,7 @@ from app.services.human_handoff_service import HumanHandoffService
 from app.services.sentiment_service import SentimentService
 from app.services.conversation_service import ConversationService
 from app.services.crm_data_service import CRMDataService
+from app.services.admin_service import AdminService
 from app.services.customer_service import CustomerService
 from app.services.elevenlabs_service import ElevenLabsService
 from app.services.groq_service import GroqService
@@ -49,6 +50,14 @@ def get_elevenlabs_service() -> ElevenLabsService:
 @lru_cache
 def get_twilio_service() -> TwilioService:
     return TwilioService(get_settings())
+
+
+@lru_cache
+def get_admin_service() -> AdminService:
+    return AdminService(
+        settings=get_settings(),
+        session_manager=get_call_session_manager(),
+    )
 
 
 @lru_cache

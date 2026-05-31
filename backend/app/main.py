@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import agents, calls, campaigns, compliance, crm, customers, elevenlabs, handoff, media_stream, tools, webhooks
+from app.api import admin, agents, calls, campaigns, compliance, crm, customers, elevenlabs, handoff, media_stream, tools, webhooks
 from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.logging_config import setup_logging
@@ -52,6 +52,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(admin.router)
 app.include_router(customers.router)
 app.include_router(calls.router)
 app.include_router(campaigns.router)

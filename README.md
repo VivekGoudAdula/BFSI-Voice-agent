@@ -326,6 +326,34 @@ Customer → Voice Agent → Compliance Middleware → Conversation Processing �
 | `COMPLIANCE_RECORDING_NOTICE` | Optional recording notice appended to disclosure |
 | `COMPLIANCE_RETENTION_*_DAYS` | Retention windows (~2555 days = 7 years). Deletion not implemented. |
 
+## Phase F1 — Admin Portal
+
+Full React admin UI with 10 modules wired to FastAPI:
+
+| Module | Route | Features |
+|--------|-------|----------|
+| Dashboard | `/` | KPI cards, success rate chart, recent activity |
+| Customers | `/customers` | CRUD, search, call history |
+| Campaigns | `/campaigns` | Create, CSV upload, start/pause/resume/stop |
+| Agents | `/agents` | EMI, Collections, Loan, Insurance, Support — prompt, voice, language, tools |
+| Live Calls | `/live-calls` | Real-time active sessions (3s refresh) |
+| Call History | `/call-history` | Transcript, recording, summary, outcome, tool calls |
+| Escalations | `/escalations` | Transfer queue + escalation log |
+| Compliance | `/compliance` | Consent, disclosure, audit trail, tool history |
+| Analytics | `/analytics` | Success/callback/escalation rates, campaign & agent charts |
+| Settings | `/settings` | Twilio/Groq/ElevenLabs status, voices, languages, campaign & compliance config |
+
+### New Admin API endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/admin/dashboard` | Unified dashboard metrics |
+| GET/PUT | `/admin/settings` | Platform settings (mutable non-secrets) |
+| GET | `/calls/active` | Live call sessions |
+| GET | `/calls/{call_id}` | Single call record |
+| GET/PUT/DELETE | `/customers/{id}` | Customer CRUD |
+| GET | `/customers/{id}/calls` | Customer call history |
+
 ## Documentation
 
 - Backend API: http://localhost:8000/docs

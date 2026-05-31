@@ -348,6 +348,10 @@ class CallSessionManager:
 
         return None
 
+    def list_active_sessions(self) -> list[ActiveCallSession]:
+        """Return all in-memory active call sessions."""
+        return list(self._sessions.values())
+
 
 
     def add_user_message(self, session: ActiveCallSession, content: str) -> None:
