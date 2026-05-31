@@ -25,6 +25,7 @@ class GroqService:
         self._settings = settings
         self._api_key = settings.groq_api_key
         self._model = settings.groq_model
+        self._fallback_model = settings.groq_fallback_model.strip()
 
     async def generate_response(
         self,
@@ -53,6 +54,7 @@ class GroqService:
         *,
         forced_tool: str | None = None,
         forced_tool_args: dict[str, Any] | None = None,
+        enable_tools: bool = True,
     ) -> tuple[str, float, list[str]]:
         """
         Generate a response using Groq tool calling.
@@ -93,13 +95,13 @@ class GroqService:
                 "content": json.dumps(result.data if result.success else {"error": result.error}),
             })
 
-        tool_choice: Any = "auto" if tools else None
+        tool_choice: Any = "auto" if tools and enable_tools else None
         payload_base: dict[str, Any] = {
             "model": self._model,
             "temperature": 0.3,
             "max_tokens": 200,
         }
-        if tools:
+        if tools and enable_tools:
             payload_base["tools"] = tools
             payload_base["tool_choice"] = tool_choice
 
@@ -172,32 +174,64 @@ class GroqService:
         if not self._api_key:
             raise GroqServiceError("GROQ_API_KEY must be configured")
 
-        payload.setdefault("model", self._model)
+        primary_model = payload.get("model") or self._model
+        models = [primary_model]
+        if self._fallback_model and self._fallback_model not in models:
+            models.append(self._fallback_model)
+
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
 
+        last_error: GroqServiceError | None = None
         start = time.perf_counter()
-        try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                response = await client.post(
-                    GROQ_CHAT_URL,
-                    json=payload,
-                    headers=headers,
-                )
-                response.raise_for_status()
-                data = response.json()
-        except httpx.HTTPStatusError as exc:
-            detail = exc.response.text[:500] if exc.response else str(exc)
-            log_with_context(logger, logging.ERROR, f"Groq API HTTP error: {detail}", event="groq_error")
-            raise GroqServiceError(detail) from exc
-        except httpx.RequestError as exc:
-            log_with_context(logger, logging.ERROR, f"Groq request failed: {exc}", event="groq_error")
-            raise GroqServiceError(str(exc)) from exc
 
-        latency_ms = (time.perf_counter() - start) * 1000
-        return data, latency_ms
+        for idx, model in enumerate(models):
+            request_payload = {**payload, "model": model}
+            try:
+                async with httpx.AsyncClient(timeout=20.0) as client:
+                    response = await client.post(
+                        GROQ_CHAT_URL,
+                        json=request_payload,
+                        headers=headers,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                if idx > 0:
+                    log_with_context(
+                        logger,
+                        logging.INFO,
+                        f"Groq request succeeded on fallback model {model}",
+                        event="groq_fallback_success",
+                    )
+                latency_ms = (time.perf_counter() - start) * 1000
+                return data, latency_ms
+            except httpx.HTTPStatusError as exc:
+                detail = exc.response.text[:500] if exc.response else str(exc)
+                is_rate_limit = "rate_limit" in detail.lower()
+                if is_rate_limit and idx < len(models) - 1:
+                    log_with_context(
+                        logger,
+                        logging.WARNING,
+                        f"Groq rate limit on {model}, retrying with {models[idx + 1]}",
+                        event="groq_fallback_retry",
+                    )
+                    last_error = GroqServiceError(detail)
+                    continue
+                log_with_context(
+                    logger, logging.ERROR, f"Groq API HTTP error: {detail}", event="groq_error"
+                )
+                raise GroqServiceError(detail) from exc
+            except httpx.RequestError as exc:
+                log_with_context(
+                    logger, logging.ERROR, f"Groq request failed: {exc}", event="groq_error"
+                )
+                raise GroqServiceError(str(exc)) from exc
+
+        if last_error:
+            raise last_error
+        raise GroqServiceError("Groq request failed")
 
     @staticmethod
     def _extract_content(data: dict[str, Any]) -> str:

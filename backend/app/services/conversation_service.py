@@ -101,10 +101,14 @@ class ConversationService:
 
             agent_config = self._get_agent_config(session)
             turn_context = self._build_turn_context(session)
+            was_identity_verified = session.identity_verified
             turn_result = self._engine.process_user_turn(agent_config, turn_context, text)
 
             session.current_state = turn_result["updated_context"].current_state
             session.identity_verified = turn_result["updated_context"].identity_verified
+            identity_just_confirmed = (
+                not was_identity_verified and session.identity_verified
+            )
             session.objections_raised = turn_result["updated_context"].objections_raised
 
             escalation = turn_result["escalation"]
@@ -117,11 +121,25 @@ class ConversationService:
             updated = turn_result["updated_context"]
             session.sentiment_history = list(updated.sentiment_history)
 
-            response_text, tools_used = await self._generate_response(
-                session,
-                agent_config,
-                turn_result,
-            )
+            try:
+                response_text, tools_used = await self._generate_response(
+                    session,
+                    agent_config,
+                    turn_result,
+                )
+            except Exception as exc:
+                log_with_context(
+                    logger,
+                    logging.ERROR,
+                    f"Response generation failed: {exc}",
+                    call_id=session.call_id,
+                    event="response_generation_failed",
+                )
+                response_text, tools_used = await self._recover_from_llm_failure(
+                    session,
+                    agent_config,
+                    identity_just_confirmed=identity_just_confirmed,
+                )
             session.tools_used.extend(tools_used)
 
             self._session_manager.add_assistant_message(session, response_text)
@@ -166,6 +184,16 @@ class ConversationService:
                 call_id=session.call_id,
                 event="turn_error",
             )
+            try:
+                agent_config = self._get_agent_config(session)
+                await self._speak(
+                    session,
+                    self._engine.get_api_failure_response(
+                        customer_name=session.customer_name,
+                    ),
+                )
+            except Exception:
+                pass
         finally:
             session.is_processing = False
 
@@ -200,6 +228,8 @@ class ConversationService:
                 "escalation_category": turn_result.get("escalation_category", ""),
                 "escalation_reason": turn_result.get("transfer_reason", ""),
                 "agent_purpose": agent_config.purpose,
+                "payment_link_sent": session.payment_link_sent,
+                "payment_link_result": dict(session.payment_link_result),
             },
         )
 
@@ -227,6 +257,7 @@ class ConversationService:
                 tool_context,
                 forced_tool=forced_tool if attempt == 0 else None,
                 forced_tool_args=forced_args if attempt == 0 else None,
+                enable_tools=(attempt == 0),
             )
             session._last_groq_ms = groq_ms
             forced_tool = None  # only force on first attempt
@@ -243,6 +274,11 @@ class ConversationService:
                     response_text = transfer_msg
 
             if validation.is_valid:
+                if tool_context.extra.get("payment_link_sent"):
+                    session.payment_link_sent = True
+                    session.payment_link_result = dict(
+                        tool_context.extra.get("payment_link_result") or {}
+                    )
                 return response_text, tools_used
 
             log_with_context(
@@ -254,7 +290,65 @@ class ConversationService:
             )
             regeneration_hint = self._engine.get_regeneration_hint(validation.violations)
 
+        if tool_context.extra.get("payment_link_sent"):
+            session.payment_link_sent = True
+            session.payment_link_result = dict(
+                tool_context.extra.get("payment_link_result") or {}
+            )
         return self._engine.get_fallback_response(agent_config), tools_used
+
+    async def _recover_from_llm_failure(
+        self,
+        session: ActiveCallSession,
+        agent_config: AgentConfig,
+        *,
+        identity_just_confirmed: bool = False,
+    ) -> tuple[str, list[str]]:
+        """
+        Produce a sensible spoken response when Groq is unavailable.
+
+        After identity confirmation, runs check_emi_due directly so the call
+        can continue without the primary LLM.
+        """
+        if identity_just_confirmed and session.identity_verified:
+            tool_context = ToolContext(
+                customer_id=session.customer_id,
+                call_id=session.call_id,
+                call_sid=session.call_sid,
+                customer_name=session.customer_name,
+                agent_id=session.agent_id,
+                identity_verified=True,
+                messages=list(session.messages),
+                tools_used=list(session.tools_used),
+                extra={
+                    "payment_link_sent": session.payment_link_sent,
+                    "payment_link_result": dict(session.payment_link_result),
+                },
+            )
+            try:
+                result, _ = await self._tool_executor.execute_and_log(
+                    "check_emi_due",
+                    {"customer_id": session.customer_id},
+                    tool_context,
+                )
+                if result.success:
+                    return (
+                        self._engine.build_emi_summary_response(
+                            session.customer_name,
+                            result.data,
+                        ),
+                        ["check_emi_due"],
+                    )
+            except Exception as exc:
+                logger.warning("EMI recovery tool failed: %s", exc)
+
+        return (
+            self._engine.get_api_failure_response(
+                customer_name=session.customer_name,
+                identity_just_confirmed=identity_just_confirmed,
+            ),
+            [],
+        )
 
     def _get_agent_config(self, session: ActiveCallSession) -> AgentConfig:
         if session.agent_config:

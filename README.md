@@ -117,7 +117,7 @@ The agent automatically invokes banking tools when customers request actions or 
 | `get_loan_details` | Fetch loan type, outstanding amount, EMI |
 | `check_emi_due` | Check pending EMI amount, due date, status |
 | `schedule_callback` | Schedule a future callback (stored in MongoDB) |
-| `send_payment_link` | Send payment link via SMS (mock) |
+| `send_payment_link` | Send payment link via SMS (Twilio) |
 | `transfer_to_human` | Transfer to human agent (mock) |
 
 ### Tool pipeline
@@ -138,10 +138,22 @@ The LLM never invents banking data — it always calls tools and uses the return
 | GET | `/tools/logs/call/{call_id}` | Tool logs for a call |
 | GET | `/tools/callbacks` | List scheduled callbacks |
 
+### SMS delivery
+
+When the agent invokes `send_payment_link`, the platform sends a real SMS via Twilio to the customer's registered mobile number and stores delivery logs in MongoDB.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/sms/logs` | Recent SMS delivery logs |
+| GET | `/sms/logs/{customer_id}` | SMS logs for a customer |
+
+Configure `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_SMS_NUMBER` in `.env`.
+
 ### MongoDB collections
 
 - `callbacks` — scheduled callback records
 - `tool_execution_logs` — tool name, arguments, result, execution time
+- `sms_logs` — SMS message, delivery status, Twilio SID, timestamp
 
 ## Phase 5 — Internal CRM
 

@@ -35,6 +35,7 @@ from app.services.groq_service import GroqService
 from app.services.post_call_service import PostCallService
 from app.services.tool_execution_service import ToolExecutionService
 from app.services.twilio_service import TwilioService
+from app.services.sms_service import SMSService
 from app.tools.registry import ToolRegistry
 
 
@@ -50,6 +51,11 @@ def get_elevenlabs_service() -> ElevenLabsService:
 @lru_cache
 def get_twilio_service() -> TwilioService:
     return TwilioService(get_settings())
+
+
+@lru_cache
+def get_sms_service() -> SMSService:
+    return SMSService(get_settings())
 
 
 @lru_cache
@@ -118,6 +124,7 @@ def get_tool_registry() -> ToolRegistry:
         callback_service=get_callback_service(),
         customer_service=get_customer_service(),
         human_handoff_service=get_human_handoff_service(),
+        sms_service=get_sms_service(),
     )
 
 

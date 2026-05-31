@@ -28,7 +28,7 @@ TOOL_GUIDANCE = """
 You have access to banking tools. You MUST use tools for any customer request involving:
 - Loan details → get_loan_details
 - EMI amount, due date, or payment status → check_emi_due
-- Payment link → send_payment_link
+- Payment link via SMS → send_payment_link (ONLY when customer explicitly asks to receive the link, or says yes after you offer to send it)
 - Callback scheduling → schedule_callback
 - Human agent / complaint / escalation → transfer_to_human
 
@@ -215,6 +215,42 @@ class AgentEngine:
     def get_fallback_response(self, agent_config: AgentConfig) -> str:
         """Safe fallback when generation fails validation repeatedly."""
         return agent_config.unavailable_info_message
+
+    def get_api_failure_response(
+        self,
+        *,
+        customer_name: str = "",
+        identity_just_confirmed: bool = False,
+    ) -> str:
+        """Spoken fallback when the LLM API is temporarily unavailable."""
+        name = customer_name.strip() or "there"
+        if identity_just_confirmed:
+            return (
+                f"Thank you for confirming, {name}. "
+                "I'm experiencing a brief technical delay. "
+                "Let me pull up your EMI details — one moment please."
+            )
+        return (
+            "I apologize for the brief delay on the line. "
+            "Could you please repeat what you just said?"
+        )
+
+    @staticmethod
+    def build_emi_summary_response(
+        customer_name: str,
+        emi_data: dict[str, Any],
+    ) -> str:
+        """Scripted EMI summary when LLM is unavailable after identity confirmation."""
+        name = customer_name.strip() or "there"
+        amount = emi_data.get("emi_amount", "")
+        due_date = emi_data.get("due_date", "")
+        status = str(emi_data.get("status", "pending")).lower()
+        amount_text = f"Rs. {amount:,}" if isinstance(amount, int) else str(amount)
+        return (
+            f"Thank you for confirming, {name}. "
+            f"Your EMI of {amount_text} was due on {due_date} and the status is {status}. "
+            "Would you like to pay online, or shall I send a payment link to your registered mobile number?"
+        )
 
     def get_escalation_response(self, agent_config: AgentConfig) -> str:
         """Approved escalation message."""

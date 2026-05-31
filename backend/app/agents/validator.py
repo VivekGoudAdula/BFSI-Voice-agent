@@ -65,7 +65,7 @@ class ResponseValidator:
 
         aggressive_patterns = [
             r"\b(you have to|you must|mandatory|final warning)\b",
-            r"\b(pay now|immediately or else)\b",
+            r"\b(pay now or else|immediately or else|pay right now or)\b",
         ]
         for pattern in aggressive_patterns:
             if re.search(pattern, lower, re.IGNORECASE):

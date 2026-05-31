@@ -177,3 +177,7 @@ class MongoDB:
     @classmethod
     def compliance_events(cls) -> Collection:
         return cls.get_db()["compliance_events"]
+
+    @classmethod
+    def sms_logs(cls) -> Collection:
+        return cls.get_db()["sms_logs"]

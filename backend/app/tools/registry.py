@@ -7,6 +7,7 @@ from app.services.banking_service import BankingService
 from app.services.callback_service import CallbackService
 from app.services.customer_service import CustomerService
 from app.services.human_handoff_service import HumanHandoffService
+from app.services.sms_service import SMSService
 from app.tools.base import Tool, ToolContext, ToolResult
 from app.tools.banking_tools import (
     CheckEmiDueTool,
@@ -34,6 +35,7 @@ class ToolRegistry:
         callback_service: CallbackService,
         customer_service: CustomerService,
         human_handoff_service: HumanHandoffService,
+        sms_service: SMSService,
     ) -> None:
         self._tools: dict[str, Tool] = {}
         self._register_defaults(
@@ -41,6 +43,7 @@ class ToolRegistry:
             callback_service,
             customer_service,
             human_handoff_service,
+            sms_service,
         )
 
     def _register_defaults(
@@ -49,13 +52,14 @@ class ToolRegistry:
         callback_service: CallbackService,
         customer_service: CustomerService,
         human_handoff_service: HumanHandoffService,
+        sms_service: SMSService,
     ) -> None:
         """Register all BFSI agent tools."""
         defaults: list[Tool] = [
             GetLoanDetailsTool(banking_service),
             CheckEmiDueTool(banking_service),
             ScheduleCallbackTool(callback_service),
-            SendPaymentLinkTool(banking_service, customer_service),
+            SendPaymentLinkTool(banking_service, customer_service, sms_service),
             TransferToHumanTool(human_handoff_service),
             VerifyCustomerTool(customer_service),
             CreateSupportTicketTool(),
@@ -106,8 +110,19 @@ class ToolRegistry:
 
         # Inject session context defaults into arguments
         enriched = dict(arguments)
-        if "customer_id" not in enriched or not enriched["customer_id"]:
-            enriched["customer_id"] = context.customer_id
+        session_customer_id = (context.customer_id or "").strip()
+        llm_customer_id = str(enriched.get("customer_id") or "").strip()
+        if session_customer_id:
+            if llm_customer_id and llm_customer_id != session_customer_id:
+                logger.info(
+                    "Tool %s: using session customer_id=%s (LLM provided %r)",
+                    name,
+                    session_customer_id,
+                    llm_customer_id,
+                )
+            enriched["customer_id"] = session_customer_id
+        elif not llm_customer_id:
+            enriched["customer_id"] = session_customer_id
         if name == "transfer_to_human":
             if not enriched.get("call_sid"):
                 enriched["call_sid"] = context.call_sid

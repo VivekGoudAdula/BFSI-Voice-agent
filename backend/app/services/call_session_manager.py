@@ -105,6 +105,8 @@ class ActiveCallSession:
     pending_greeting: str = ""
     compliance_disclosure_text: str = ""
     skip_next_agent_turn: bool = False
+    payment_link_sent: bool = False
+    payment_link_result: dict[str, Any] = field(default_factory=dict)
 
     messages: list[dict[str, str]] = field(default_factory=list)
 

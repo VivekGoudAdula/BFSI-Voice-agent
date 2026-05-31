@@ -38,12 +38,17 @@ class BankingService:
             "loan_id": loan["loan_id"],
         }
 
-    def get_payment_link(self, customer_id: str) -> dict[str, Any]:
-        """Generate a mock payment link for the customer."""
+    def get_payment_link(
+        self,
+        customer_id: str,
+        *,
+        base_url: str = "https://abc-bank.com/pay",
+    ) -> dict[str, Any]:
+        """Generate a payment link for the customer."""
         loan = self.check_emi_due(customer_id)
-        link_id = hashlib.md5(customer_id.encode()).hexdigest()[:12]
+        base = base_url.rstrip("/")
         return {
-            "payment_link": f"https://pay.abcbank.com/emi/{link_id}",
+            "payment_link": f"{base}/{customer_id}",
             "emi_amount": loan["emi_amount"],
             "due_date": loan["due_date"],
         }

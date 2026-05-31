@@ -9,7 +9,9 @@ from app.services.banking_service import BankingService
 from app.services.callback_service import CallbackService
 from app.services.customer_service import CustomerService
 from app.services.human_handoff_service import HumanHandoffService
+from app.services.sms_service import SMSService
 from app.tools.base import Tool, ToolContext, ToolResult
+from app.utils.payment_link_intent import user_requested_payment_link
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,7 @@ class GetLoanDetailsTool(Tool):
         }
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
-        customer_id = arguments.get("customer_id") or context.customer_id
+        customer_id = context.customer_id or arguments.get("customer_id")
         if not context.identity_verified:
             return ToolResult(
                 success=False,
@@ -80,7 +82,7 @@ class CheckEmiDueTool(Tool):
         }
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
-        customer_id = arguments.get("customer_id") or context.customer_id
+        customer_id = context.customer_id or arguments.get("customer_id")
         if not context.identity_verified:
             return ToolResult(
                 success=False,
@@ -128,7 +130,7 @@ class ScheduleCallbackTool(Tool):
         }
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
-        customer_id = arguments.get("customer_id") or context.customer_id
+        customer_id = context.customer_id or arguments.get("customer_id")
         date = arguments.get("date", "")
         time = arguments.get("time", "")
         if not date or not time:
@@ -146,21 +148,25 @@ class ScheduleCallbackTool(Tool):
 
 
 class SendPaymentLinkTool(Tool):
-    """Send payment link via SMS (mock in Phase 4)."""
+    """Send payment link via SMS using Twilio."""
 
     name = "send_payment_link"
     description = (
         "Send an EMI payment link to the customer's registered mobile number via SMS. "
-        "Use when customer asks for a payment link or wants to pay online."
+        "Use ONLY when the customer explicitly asks to receive the payment link "
+        "(e.g. 'send me the link') or gives a short yes/yep after you offered to send it. "
+        "Do NOT use when the customer only mentions paying online without asking for the link."
     )
 
     def __init__(
         self,
         banking_service: BankingService,
         customer_service: CustomerService,
+        sms_service: SMSService,
     ) -> None:
         self._banking = banking_service
         self._customers = customer_service
+        self._sms = sms_service
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -176,35 +182,95 @@ class SendPaymentLinkTool(Tool):
         }
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
-        customer_id = arguments.get("customer_id") or context.customer_id
+        customer_id = context.customer_id or arguments.get("customer_id")
         if not context.identity_verified:
             return ToolResult(
                 success=False,
                 data={},
                 error="Identity must be verified before sending payment link.",
             )
-        try:
-            payment = self._banking.get_payment_link(customer_id)
-            customer = self._customers.get_customer_by_id(customer_id)
-            phone = customer["phone"] if customer else "registered number"
 
-            # Phase 4: mock SMS send. Future: Twilio SMS/WhatsApp API.
-            logger.info(
-                "Mock SMS sent | phone=%s link=%s",
-                phone,
-                payment["payment_link"],
-            )
+        if context.extra.get("payment_link_sent") or "send_payment_link" in context.tools_used:
+            cached = context.extra.get("payment_link_result") or {}
             return ToolResult(
                 success=True,
                 data={
-                    "sent": True,
-                    "channel": "sms",
-                    "phone": phone,
-                    "payment_link": payment["payment_link"],
-                    "emi_amount": payment["emi_amount"],
+                    **cached,
+                    "already_sent": True,
+                    "delivery_channel": "SMS",
+                    "message": (
+                        "Payment link was already sent to the customer's "
+                        "registered mobile number during this call."
+                    ),
                 },
             )
+
+        if not user_requested_payment_link(context.messages):
+            return ToolResult(
+                success=False,
+                data={"skipped": True},
+                error=(
+                    "Customer has not explicitly requested a payment link via SMS. "
+                    "Ask if they would like you to send the link to their registered mobile number."
+                ),
+            )
+
+        try:
+            settings = get_settings()
+            payment = self._banking.get_payment_link(
+                customer_id,
+                base_url=settings.payment_link_base_url,
+            )
+            customer = self._customers.get_customer_by_id(customer_id)
+            if not customer:
+                return ToolResult(
+                    success=False,
+                    data={},
+                    error=f"Customer not found: {customer_id}",
+                )
+
+            phone = customer.get("phone", "")
+            if not phone:
+                return ToolResult(
+                    success=False,
+                    data={},
+                    error="Customer has no registered mobile number.",
+                )
+
+            message = SMSService.build_payment_link_message(
+                bank_name=settings.bank_name,
+                payment_link=payment["payment_link"],
+            )
+            delivery = self._sms.send_sms(
+                phone,
+                message,
+                customer_id=customer_id,
+            )
+
+            if not delivery.success:
+                return ToolResult(
+                    success=False,
+                    data={
+                        "delivery_channel": "SMS",
+                        "phone": delivery.phone,
+                        "status": delivery.status,
+                    },
+                    error=delivery.error or "Failed to send payment link SMS.",
+                )
+
+            result_data = {
+                "success": True,
+                "delivery_channel": "SMS",
+                "phone": delivery.phone,
+                "twilio_sid": delivery.twilio_sid,
+                "payment_link": payment["payment_link"],
+                "emi_amount": payment["emi_amount"],
+            }
+            context.extra["payment_link_sent"] = True
+            context.extra["payment_link_result"] = result_data
+            return ToolResult(success=True, data=result_data)
         except Exception as exc:
+            logger.exception("send_payment_link failed for customer %s", customer_id)
             return ToolResult(success=False, data={}, error=str(exc))
 
 
@@ -329,7 +395,7 @@ class VerifyCustomerTool(Tool):
         }
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
-        customer_id = arguments.get("customer_id") or context.customer_id
+        customer_id = context.customer_id or arguments.get("customer_id")
         if not context.identity_verified:
             return ToolResult(
                 success=False,
@@ -386,7 +452,7 @@ class CreateSupportTicketTool(Tool):
         }
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
-        customer_id = arguments.get("customer_id") or context.customer_id
+        customer_id = context.customer_id or arguments.get("customer_id")
         subject = arguments.get("subject", "Customer support request")
         description = arguments.get("description", "")
         priority = arguments.get("priority", "medium")

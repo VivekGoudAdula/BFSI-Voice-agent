@@ -19,6 +19,7 @@ export function CustomersPage() {
   const [modal, setModal] = useState<'add' | 'edit' | 'history' | 'call' | null>(null)
   const [selected, setSelected] = useState<Customer | null>(null)
   const [callAgentId, setCallAgentId] = useState('')
+  const [agentsLoading, setAgentsLoading] = useState(false)
   const [history, setHistory] = useState<Call[]>([])
   const [form, setForm] = useState({ name: '', phone: '' })
 
@@ -33,9 +34,23 @@ export function CustomersPage() {
     }
   }, [search])
 
-  useEffect(() => {
-    api.getAgents().then(setAgents).catch(() => setAgents([]))
+  const loadAgents = useCallback(async () => {
+    setAgentsLoading(true)
+    try {
+      const list = await api.getAgents()
+      setAgents(list)
+      return list
+    } catch {
+      setAgents([])
+      return []
+    } finally {
+      setAgentsLoading(false)
+    }
   }, [])
+
+  useEffect(() => {
+    loadAgents()
+  }, [loadAgents])
 
   useEffect(() => {
     const timer = setTimeout(load, 300)
@@ -80,11 +95,18 @@ export function CustomersPage() {
     }
   }
 
-  function openCall(c: Customer) {
+  async function openCall(c: Customer) {
     setSelected(c)
-    setCallAgentId('')
     setCallError('')
     setModal('call')
+
+    const list = await loadAgents()
+    const activeAgents = list.filter(
+      (a) => (a.status || 'ACTIVE').toUpperCase() === 'ACTIVE',
+    )
+    const defaultAgent =
+      activeAgents.find((a) => a.agent_id === 'emi_agent') ?? activeAgents[0]
+    setCallAgentId(defaultAgent?.agent_id ?? '')
   }
 
   async function handleCall(e: React.FormEvent) {
@@ -118,6 +140,10 @@ export function CustomersPage() {
       alert(err instanceof Error ? err.message : 'Delete failed')
     }
   }
+
+  const activeAgents = agents.filter(
+    (a) => (a.status || 'ACTIVE').toUpperCase() === 'ACTIVE',
+  )
 
   return (
     <div className="page">
@@ -258,11 +284,20 @@ export function CustomersPage() {
             <select
               value={callAgentId}
               onChange={(e) => setCallAgentId(e.target.value)}
+              disabled={agentsLoading}
+              required
             >
-              <option value="">Default (EMI Reminder Agent)</option>
-              {agents.filter((a) => a.status === 'ACTIVE').map((a) => (
-                <option key={a.agent_id} value={a.agent_id}>{a.name}</option>
-              ))}
+              {agentsLoading ? (
+                <option value="">Loading agents…</option>
+              ) : activeAgents.length === 0 ? (
+                <option value="">No agents available</option>
+              ) : (
+                activeAgents.map((a) => (
+                  <option key={a.agent_id} value={a.agent_id}>
+                    {a.name}
+                  </option>
+                ))
+              )}
             </select>
           </div>
           <button

@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_phone_number: str = ""
+    twilio_sms_number: str = ""
 
     # ElevenLabs
     elevenlabs_api_key: str = ""
@@ -34,9 +35,11 @@ class Settings(BaseSettings):
     # Groq (LLM)
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
+    groq_fallback_model: str = "llama-3.1-8b-instant"
 
     # Conversation
     bank_name: str = "ABC Bank"
+    payment_link_base_url: str = "https://abc-bank.com/pay"
 
     # MongoDB
     mongodb_uri: str = "mongodb://localhost:27017"
