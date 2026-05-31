@@ -3,9 +3,13 @@
 import logging
 from typing import Any
 
+from app.core.config import get_settings
+from app.models.handoff import EscalationCategory
+from app.services.agent_config_service import AgentConfigService
 from app.services.banking_service import BankingService
 from app.services.callback_service import CallbackService
 from app.services.customer_service import CustomerService
+from app.services.human_handoff_service import HumanHandoffService
 from app.tools.base import Tool, ToolContext, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -212,8 +216,16 @@ class TransferToHumanTool(Tool):
     description = (
         "Transfer the customer to a human banking representative. "
         "Use when customer requests a human agent, has a complaint, disputes account info, "
-        "needs legal clarification, or when escalation is required."
+        "needs legal clarification, fraud concerns, or when escalation is required."
     )
+
+    def __init__(
+        self,
+        handoff_service: HumanHandoffService,
+        agent_config_service: AgentConfigService,
+    ) -> None:
+        self._handoff = handoff_service
+        self._agent_configs = agent_config_service
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -226,28 +238,62 @@ class TransferToHumanTool(Tool):
                 },
                 "reason": {
                     "type": "string",
-                    "description": "Reason for transfer, e.g. customer_requested_human",
+                    "description": "Human-readable reason for transfer",
+                },
+                "category": {
+                    "type": "string",
+                    "description": (
+                        "Escalation category: CUSTOMER_REQUESTED_HUMAN, COMPLAINT, "
+                        "LEGAL_QUERY, ACCOUNT_DISPUTE, NEGATIVE_SENTIMENT, HIGH_RISK_QUERY"
+                    ),
                 },
             },
-            "required": ["call_sid", "reason"],
+            "required": ["reason", "category"],
         }
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
         call_sid = arguments.get("call_sid") or context.call_sid
-        reason = arguments.get("reason", "customer_requested_human")
+        reason = arguments.get("reason", "Escalation required")
+        category = arguments.get("category", EscalationCategory.CUSTOMER_REQUESTED_HUMAN.value)
 
-        # Phase 4: mock transfer. Future: Twilio live transfer via <Dial>.
-        logger.info(
-            "Mock call transfer initiated | call_sid=%s reason=%s",
-            call_sid,
+        if category not in {c.value for c in EscalationCategory}:
+            category = EscalationCategory.CUSTOMER_REQUESTED_HUMAN.value
+
+        agent_config = self._agent_configs.get_default_agent()
+        call_reason = agent_config.purpose if agent_config else "Voice Agent Call"
+
+        summary = self._handoff.build_summary_from_messages(
+            context.messages,
             reason,
         )
-        return ToolResult(
-            success=True,
-            data={
-                "transferred": True,
-                "call_sid": call_sid,
-                "reason": reason,
-                "message": "Call queued for human agent transfer",
-            },
+        context_package = self._handoff.build_context_package(
+            call_id=context.call_id,
+            call_sid=call_sid,
+            customer_id=context.customer_id,
+            customer_name=context.customer_name,
+            agent_id=context.agent_id,
+            call_reason=call_reason,
+            summary=summary,
+            escalation_category=category,
+            escalation_reason=reason,
+            messages=context.messages,
+            tool_usage=list(context.tools_used),
+            sentiment_history=list(context.sentiment_history),
         )
+
+        settings = get_settings()
+        try:
+            result = await self._handoff.transfer_to_human(
+                call_sid=call_sid,
+                customer_id=context.customer_id,
+                call_id=context.call_id,
+                reason=reason,
+                category=category,
+                context=context_package,
+                human_destination=settings.human_agent_phone,
+            )
+            context.handoff_initiated = True
+            return ToolResult(success=True, data=result)
+        except Exception as exc:
+            logger.error("Human handoff failed: %s", exc)
+            return ToolResult(success=False, data={"transferred": False}, error=str(exc))

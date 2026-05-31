@@ -3,9 +3,11 @@
 import logging
 from typing import Any
 
+from app.services.agent_config_service import AgentConfigService
 from app.services.banking_service import BankingService
 from app.services.callback_service import CallbackService
 from app.services.customer_service import CustomerService
+from app.services.human_handoff_service import HumanHandoffService
 from app.tools.base import Tool, ToolContext, ToolResult
 from app.tools.banking_tools import (
     CheckEmiDueTool,
@@ -30,23 +32,33 @@ class ToolRegistry:
         banking_service: BankingService,
         callback_service: CallbackService,
         customer_service: CustomerService,
+        human_handoff_service: HumanHandoffService,
+        agent_config_service: AgentConfigService,
     ) -> None:
         self._tools: dict[str, Tool] = {}
-        self._register_defaults(banking_service, callback_service, customer_service)
+        self._register_defaults(
+            banking_service,
+            callback_service,
+            customer_service,
+            human_handoff_service,
+            agent_config_service,
+        )
 
     def _register_defaults(
         self,
         banking_service: BankingService,
         callback_service: CallbackService,
         customer_service: CustomerService,
+        human_handoff_service: HumanHandoffService,
+        agent_config_service: AgentConfigService,
     ) -> None:
-        """Register all Phase 4 banking tools."""
+        """Register all Phase 4+ banking and handoff tools."""
         defaults: list[Tool] = [
             GetLoanDetailsTool(banking_service),
             CheckEmiDueTool(banking_service),
             ScheduleCallbackTool(callback_service),
             SendPaymentLinkTool(banking_service, customer_service),
-            TransferToHumanTool(),
+            TransferToHumanTool(human_handoff_service, agent_config_service),
         ]
         for tool in defaults:
             self.register(tool)
@@ -83,7 +95,12 @@ class ToolRegistry:
         enriched = dict(arguments)
         if "customer_id" not in enriched or not enriched["customer_id"]:
             enriched["customer_id"] = context.customer_id
-        if name == "transfer_to_human" and not enriched.get("call_sid"):
-            enriched["call_sid"] = context.call_sid
+        if name == "transfer_to_human":
+            if not enriched.get("call_sid"):
+                enriched["call_sid"] = context.call_sid
+            if not enriched.get("category") and context.extra.get("escalation_category"):
+                enriched["category"] = context.extra["escalation_category"]
+            if not enriched.get("reason") and context.extra.get("escalation_reason"):
+                enriched["reason"] = context.extra["escalation_reason"]
 
         return await tool.execute(enriched, context)

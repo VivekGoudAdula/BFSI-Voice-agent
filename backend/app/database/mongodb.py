@@ -107,3 +107,19 @@ class MongoDB:
     @classmethod
     def campaign_analytics(cls) -> Collection:
         return cls.get_db()["campaign_analytics"]
+
+    @classmethod
+    def escalations(cls) -> Collection:
+        return cls.get_db()["escalations"]
+
+    @classmethod
+    def human_handoff_logs(cls) -> Collection:
+        return cls.get_db()["human_handoff_logs"]
+
+    @classmethod
+    def transfer_queue(cls) -> Collection:
+        return cls.get_db()["transfer_queue"]
+
+    @classmethod
+    def handoff_context(cls) -> Collection:
+        return cls.get_db()["handoff_context"]

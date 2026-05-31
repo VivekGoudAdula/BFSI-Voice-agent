@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     campaign_call_interval_seconds: float = 5.0
     campaign_max_concurrent_calls: int = 50
 
+    # Human Handoff (Phase 7)
+    human_agent_phone: str = ""
+    handoff_enabled: bool = True
+
     # Application
     base_url: str = "http://localhost:8000"
     audio_storage_path: str = "./storage/audio"

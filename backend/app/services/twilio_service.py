@@ -103,6 +103,47 @@ class TwilioService:
         base = self._settings.websocket_base_url.rstrip("/")
         return f"{base}/ws/media-stream"
 
+    def mock_transfer_call(
+        self,
+        call_sid: str,
+        destination: str = "",
+        category: str = "",
+    ) -> dict[str, str | bool]:
+        """
+        Mock live call transfer for Phase 7.
+
+        Future: Twilio calls.update(url=...) with <Dial> TwiML, SIP transfer,
+        or contact-center queue integration.
+        """
+        dest = destination or self._settings.human_agent_phone or "human-agent-queue"
+        log_with_context(
+            logger,
+            logging.INFO,
+            "Mock call transfer initiated",
+            twilio_call_sid=call_sid,
+            destination=dest,
+            category=category,
+            event="mock_transfer",
+        )
+        return {
+            "transferred": True,
+            "mode": "mock",
+            "call_sid": call_sid,
+            "destination": dest,
+        }
+
+    def build_transfer_twiml(self, destination: str) -> str:
+        """
+        TwiML for live transfer — ready for Phase 7+ Twilio integration.
+
+        Usage: update active call URL to webhook returning this TwiML.
+        """
+        return f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>Please hold while we connect you to a banking representative.</Say>
+    <Dial>{destination}</Dial>
+</Response>"""
+
     @staticmethod
     def generate_media_stream_twiml(stream_url: str, call_id: str) -> str:
         """

@@ -59,7 +59,7 @@ class ConversationService:
         stt_latency_ms: float,
     ) -> None:
         """Process a final user utterance through the agent + tool pipeline."""
-        if session.is_processing:
+        if session.is_processing or session.handoff_initiated:
             return
 
         text = transcript.strip()
@@ -85,7 +85,13 @@ class ConversationService:
 
             escalation = turn_result["escalation"]
             if escalation and escalation.escalate:
-                session.escalation_reason = escalation.reason
+                session.escalation_reason = turn_result.get(
+                    "transfer_reason", escalation.reason
+                )
+                session.escalation_category = turn_result.get("escalation_category", "")
+
+            updated = turn_result["updated_context"]
+            session.sentiment_history = list(updated.sentiment_history)
 
             response_text, tools_used = await self._generate_response(
                 session,
@@ -160,7 +166,16 @@ class ConversationService:
             call_id=session.call_id,
             call_sid=session.call_sid,
             customer_name=session.customer_name,
+            agent_id=session.agent_id,
             identity_verified=session.identity_verified,
+            messages=list(session.messages),
+            tools_used=list(session.tools_used),
+            sentiment_history=list(session.sentiment_history),
+            handoff_initiated=session.handoff_initiated,
+            extra={
+                "escalation_category": turn_result.get("escalation_category", ""),
+                "escalation_reason": turn_result.get("transfer_reason", ""),
+            },
         )
 
         forced_tool = None
@@ -169,7 +184,10 @@ class ConversationService:
             forced_tool = "transfer_to_human"
             forced_args = {
                 "call_sid": session.call_sid,
-                "reason": turn_result.get("transfer_reason", "customer_requested_human"),
+                "reason": turn_result.get("transfer_reason", "Escalation required"),
+                "category": turn_result.get(
+                    "escalation_category", "CUSTOMER_REQUESTED_HUMAN"
+                ),
             }
 
         regeneration_hint = ""
@@ -192,6 +210,13 @@ class ConversationService:
             validation = self._engine.validate_response(
                 response_text, agent_config, turn_context, tools_used=tools_used
             )
+            if "transfer_to_human" in tools_used:
+                session.handoff_initiated = True
+                tool_context.handoff_initiated = True
+                transfer_msg = turn_result.get("transfer_message")
+                if transfer_msg:
+                    response_text = transfer_msg
+
             if validation.is_valid:
                 return response_text, tools_used
 
@@ -225,6 +250,8 @@ class ConversationService:
             identity_verified=session.identity_verified,
             agent_context=session.agent_context,
             objections_raised=list(session.objections_raised),
+            tools_used=list(session.tools_used),
+            sentiment_history=list(session.sentiment_history),
         )
 
     async def handle_speech_started(self, session: ActiveCallSession) -> None:

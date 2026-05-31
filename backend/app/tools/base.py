@@ -13,7 +13,12 @@ class ToolContext:
     call_id: str
     call_sid: str
     customer_name: str = ""
+    agent_id: str = ""
     identity_verified: bool = False
+    messages: list[dict[str, str]] = field(default_factory=list)
+    tools_used: list[str] = field(default_factory=list)
+    sentiment_history: list[str] = field(default_factory=list)
+    handoff_initiated: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
 

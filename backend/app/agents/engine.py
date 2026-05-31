@@ -4,7 +4,10 @@ import logging
 import re
 from typing import Any
 
-from app.agents.escalation import EscalationEngine
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.escalation_service import EscalationService
 from app.agents.objection_handler import ObjectionHandler
 from app.agents.states import ConversationState, infer_next_state
 from app.agents.validator import ResponseValidator
@@ -14,6 +17,7 @@ from app.models.agent import (
     EscalationResult,
     ValidationResult,
 )
+from app.models.handoff import EscalationCategory
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +77,12 @@ class AgentEngine:
     Supports multiple agent types loaded from MongoDB without hardcoded logic.
     """
 
-    def __init__(self) -> None:
-        self._escalation = EscalationEngine()
+    def __init__(self, escalation_service: "EscalationService | None" = None) -> None:
+        if escalation_service is None:
+            from app.services.escalation_service import EscalationService
+
+            escalation_service = EscalationService()
+        self._escalation = escalation_service
         self._objections = ObjectionHandler()
         self._validator = ResponseValidator()
 
@@ -148,9 +156,28 @@ class AgentEngine:
         self,
         user_message: str,
         agent_config: AgentConfig,
+        turn_context: AgentTurnContext | None = None,
     ) -> EscalationResult:
         """Evaluate whether the conversation should be escalated."""
-        return self._escalation.check(user_message, agent_config)
+        ctx = turn_context or AgentTurnContext(
+            customer_name="",
+            customer_id="",
+            call_id="",
+            call_sid="",
+        )
+        analysis = self._escalation.analyze(
+            user_message,
+            agent_config,
+            current_state=ctx.current_state,
+            sentiment_history=ctx.sentiment_history,
+        )
+        if not analysis.should_escalate:
+            return EscalationResult(escalate=False)
+
+        legacy_reason = self._escalation.map_category_to_legacy_reason(
+            analysis.category or EscalationCategory.CUSTOMER_REQUESTED_HUMAN
+        )
+        return EscalationResult(escalate=True, reason=legacy_reason)
 
     def detect_objection(
         self,
@@ -251,19 +278,31 @@ class AgentEngine:
             - objection_scenario: str
             - updated_context: AgentTurnContext
         """
-        escalation = self.check_escalation(user_message, agent_config)
+        analysis = self._escalation.analyze(
+            user_message,
+            agent_config,
+            current_state=turn_context.current_state,
+            sentiment_history=turn_context.sentiment_history,
+        )
+        turn_context.sentiment_history.append(analysis.sentiment.value)
+        escalation = EscalationResult(
+            escalate=analysis.should_escalate,
+            reason=analysis.reason if analysis.should_escalate else "",
+        )
 
-        if escalation.escalate:
+        if analysis.should_escalate and analysis.category:
             turn_context.current_state = ConversationState.ESCALATION
             return {
                 "escalation": escalation,
                 "use_objection_response": False,
                 "objection_response": "",
-                "objection_scenario": "",
+                "objection_scenario": "escalation",
                 "updated_context": turn_context,
                 "forced_response": None,
                 "trigger_transfer": True,
-                "transfer_reason": escalation.reason,
+                "transfer_reason": analysis.reason,
+                "escalation_category": analysis.category.value,
+                "transfer_message": self._escalation.get_transfer_message(analysis.category),
             }
 
         objection = self.detect_objection(user_message, agent_config)

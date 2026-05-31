@@ -110,3 +110,19 @@ class CampaignStateError(AppException):
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Campaign {campaign_id}: {message}",
         )
+
+
+class EscalationNotFoundError(AppException):
+    def __init__(self, escalation_id: str) -> None:
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Escalation not found: {escalation_id}",
+        )
+
+
+class HandoffQueueItemNotFoundError(AppException):
+    def __init__(self, queue_id: str) -> None:
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Handoff queue item not found: {queue_id}",
+        )

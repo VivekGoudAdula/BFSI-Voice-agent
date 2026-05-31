@@ -87,6 +87,12 @@ class ActiveCallSession:
 
     escalation_reason: str = ""
 
+    escalation_category: str = ""
+
+    sentiment_history: list[str] = field(default_factory=list)
+
+    handoff_initiated: bool = False
+
     analytics_id: str = ""
 
     tools_used: list[str] = field(default_factory=list)

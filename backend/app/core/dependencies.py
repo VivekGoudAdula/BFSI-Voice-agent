@@ -4,6 +4,7 @@ from functools import lru_cache
 
 from app.core.config import Settings, get_settings
 from app.repositories.campaign_repository import CampaignRepository
+from app.repositories.handoff_repository import HandoffRepository
 from app.services.agent_analytics_service import AgentAnalyticsService
 from app.services.agent_config_service import AgentConfigService
 from app.services.banking_service import BankingService
@@ -13,6 +14,11 @@ from app.services.call_service import CallService
 from app.services.call_session_manager import CallSessionManager
 from app.services.campaign_queue_service import CampaignQueueService
 from app.services.campaign_service import CampaignService
+from app.services.escalation_service import EscalationService
+from app.services.handoff_analytics_service import HandoffAnalyticsService
+from app.services.handoff_service import HandoffService
+from app.services.human_handoff_service import HumanHandoffService
+from app.services.sentiment_service import SentimentService
 from app.services.conversation_service import ConversationService
 from app.services.crm_data_service import CRMDataService
 from app.services.customer_service import CustomerService
@@ -74,11 +80,50 @@ def get_callback_service() -> CallbackService:
 
 
 @lru_cache
+def get_handoff_repository() -> HandoffRepository:
+    return HandoffRepository()
+
+
+@lru_cache
+def get_sentiment_service() -> SentimentService:
+    return SentimentService()
+
+
+@lru_cache
+def get_escalation_service() -> EscalationService:
+    return EscalationService(sentiment_service=get_sentiment_service())
+
+
+@lru_cache
+def get_human_handoff_service() -> HumanHandoffService:
+    return HumanHandoffService(
+        repository=get_handoff_repository(),
+        twilio_service=get_twilio_service(),
+        sentiment_service=get_sentiment_service(),
+    )
+
+
+@lru_cache
+def get_handoff_analytics_service() -> HandoffAnalyticsService:
+    return HandoffAnalyticsService(repository=get_handoff_repository())
+
+
+@lru_cache
+def get_handoff_service() -> HandoffService:
+    return HandoffService(
+        repository=get_handoff_repository(),
+        analytics_service=get_handoff_analytics_service(),
+    )
+
+
+@lru_cache
 def get_tool_registry() -> ToolRegistry:
     return ToolRegistry(
         banking_service=get_banking_service(),
         callback_service=get_callback_service(),
         customer_service=get_customer_service(),
+        human_handoff_service=get_human_handoff_service(),
+        agent_config_service=get_agent_config_service(),
     )
 
 

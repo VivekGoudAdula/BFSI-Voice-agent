@@ -1,6 +1,6 @@
 # AI Voice Agent Platform
 
-Phase 6: Campaign engine for large-scale outbound calling with internal MongoDB CRM.
+Phase 7: Human handoff with escalation engine, transfer queue, and conversation context preservation.
 
 ## Stack
 
@@ -217,6 +217,61 @@ Set in `backend/.env`:
 - `campaign_customers` — imported customers per campaign
 - `campaign_runs` — execution run records
 - `campaign_analytics` — aggregated campaign metrics
+
+## Phase 7 — Human Handoff
+
+The AI detects escalation triggers, records escalations, packages conversation context, and queues transfers to human agents. Live Twilio transfer is mocked; architecture supports real `<Dial>` / SIP integration later.
+
+### Escalation flow
+
+```
+Customer message → EscalationService + SentimentService
+    → Record escalation → Transfer queue → Mock transfer
+    → Preserve transcript & context → End AI handling
+```
+
+### Escalation categories
+
+| Category | Examples |
+|----------|----------|
+| `CUSTOMER_REQUESTED_HUMAN` | "Speak to a person", "Transfer me to support" |
+| `COMPLAINT` | "File a complaint", "This service is terrible" |
+| `LEGAL_QUERY` | Legal department, lawyer, lawsuit |
+| `ACCOUNT_DISPUTE` | Wrong EMI, incorrect loan info |
+| `NEGATIVE_SENTIMENT` | Anger, repeated refusal, aggressive language |
+| `HIGH_RISK_QUERY` | Fraud, identity theft, unauthorized transactions |
+
+### Transfer priority
+
+| Priority | Categories |
+|----------|------------|
+| HIGH | Legal, fraud/high-risk, account disputes |
+| MEDIUM | Complaints, negative sentiment |
+| LOW | General human requests |
+
+### Handoff API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/escalations` | List all escalations |
+| GET | `/escalations/{id}` | Get escalation by ID |
+| GET | `/escalations/analytics/summary` | Escalation & transfer analytics |
+| GET | `/handoff-queue` | List transfer queue items |
+| GET | `/handoff-queue/{id}` | Get queue item with context |
+
+### MongoDB collections (Phase 7)
+
+- `escalations` — call_sid, customer_id, escalation_type, reason
+- `human_handoff_logs` — transfer status and timestamp
+- `transfer_queue` — priority, status, conversation context
+- `handoff_context` — full context package for human agents
+
+### Configuration
+
+| Variable | Description |
+|----------|-------------|
+| `HUMAN_AGENT_PHONE` | Destination for future live transfer (E.164) |
+| `HANDOFF_ENABLED` | Enable handoff pipeline (default: true) |
 
 ## Documentation
 

@@ -1,7 +1,7 @@
 """Agent configuration, escalation, and analytics domain models."""
 
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -88,6 +88,7 @@ class AgentTurnContext(BaseModel):
     agent_context: dict[str, Any] = Field(default_factory=dict)
     objections_raised: list[str] = Field(default_factory=list)
     tools_used: list[str] = Field(default_factory=list)
+    sentiment_history: list[str] = Field(default_factory=list)
 
 
 class ValidationResult(BaseModel):
