@@ -181,3 +181,19 @@ class MongoDB:
     @classmethod
     def sms_logs(cls) -> Collection:
         return cls.get_db()["sms_logs"]
+
+    @classmethod
+    def customer_language_preferences(cls) -> Collection:
+        return cls.get_db()["customer_language_preferences"]
+
+    @classmethod
+    def agent_prompt_translations(cls) -> Collection:
+        return cls.get_db()["agent_prompt_translations"]
+
+    @classmethod
+    def language_switch_events(cls) -> Collection:
+        return cls.get_db()["language_switch_events"]
+
+    @classmethod
+    def language_analytics(cls) -> Collection:
+        return cls.get_db()["language_analytics"]

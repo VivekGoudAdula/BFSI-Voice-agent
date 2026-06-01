@@ -2,8 +2,13 @@
 
 from fastapi import APIRouter, Depends, status
 
-from app.agents.seed.default_agents import SUPPORTED_LANGUAGES
-from app.core.dependencies import get_agent_analytics_service, get_agent_manager
+from app.config.languages import SUPPORTED_LANGUAGES
+from app.core.dependencies import (
+    get_agent_analytics_service,
+    get_agent_manager,
+    get_language_analytics_service,
+    get_language_manager,
+)
 from app.core.exceptions import AgentNotFoundError
 from app.models.agent import (
     AgentAnalyticsRecord,
@@ -12,6 +17,11 @@ from app.models.agent import (
     AgentUpdateRequest,
     AnalyticsSummary,
     ConversationAnalytics,
+)
+from app.models.language import (
+    AgentLanguagesResponse,
+    AgentLanguagesUpdateRequest,
+    LanguageAnalyticsSummary,
 )
 from app.services.agent_analytics_service import AgentAnalyticsService
 from app.agents.manager import AgentManager
@@ -48,6 +58,18 @@ def get_default_agent(
 ) -> AgentDocument:
     runtime = manager.get_default_agent()
     return manager.get_agent(runtime.agent_id)
+
+
+@router.get(
+    "/analytics/languages",
+    response_model=LanguageAnalyticsSummary,
+    summary="Get multilingual call analytics",
+)
+def get_language_analytics(
+    agent_id: str | None = None,
+    service=Depends(get_language_analytics_service),
+) -> LanguageAnalyticsSummary:
+    return service.get_summary(agent_id=agent_id)
 
 
 @router.get(
@@ -102,6 +124,50 @@ def create_agent(
     manager: AgentManager = Depends(get_agent_manager),
 ) -> AgentDocument:
     return manager.register(payload)
+
+
+@router.get(
+    "/{agent_id}/languages",
+    response_model=AgentLanguagesResponse,
+    summary="Get agent multilingual configuration",
+)
+def get_agent_languages(
+    agent_id: str,
+    manager: AgentManager = Depends(get_agent_manager),
+    language_manager=Depends(get_language_manager),
+) -> AgentLanguagesResponse:
+    doc = manager.get_agent_document_raw(agent_id)
+    data = language_manager.get_agent_languages_response(doc)
+    return AgentLanguagesResponse(**data)
+
+
+@router.post(
+    "/{agent_id}/languages",
+    response_model=AgentLanguagesResponse,
+    summary="Configure agent languages, voices, and prompt translations",
+)
+def configure_agent_languages(
+    agent_id: str,
+    payload: AgentLanguagesUpdateRequest,
+    manager: AgentManager = Depends(get_agent_manager),
+    language_manager=Depends(get_language_manager),
+) -> AgentLanguagesResponse:
+    manager.update_agent_languages(
+        agent_id,
+        supported_languages=payload.supported_languages,
+        default_language=payload.default_language,
+        voice_configs=[vc.model_dump() for vc in payload.voice_configs],
+    )
+    if payload.prompt_translations:
+        from app.repositories.language_repository import LanguageRepository
+
+        LanguageRepository().upsert_prompt_translations(
+            manager.get_agent(agent_id).agent_id,
+            payload.prompt_translations,
+        )
+    doc = manager.get_agent_document_raw(agent_id)
+    data = language_manager.get_agent_languages_response(doc)
+    return AgentLanguagesResponse(**data)
 
 
 @router.get(

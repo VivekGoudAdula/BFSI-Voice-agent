@@ -194,6 +194,27 @@ export interface CompliancePackage {
   events: Array<{ event_type: string; timestamp: string; details: string }>
 }
 
+export interface AgentLanguagesResponse {
+  agent_id: string
+  supported_languages: string[]
+  default_language: string
+  voice_configs: { language: string; voice_id: string }[]
+  prompt_translations: {
+    agent_id: string
+    language: string
+    system_prompt: string
+    greeting_template?: string
+  }[]
+}
+
+export interface LanguageAnalyticsSummary {
+  calls_by_language: Record<string, number>
+  language_distribution: Record<string, number>
+  language_switch_events: number
+  language_success_rate: Record<string, number>
+  total_calls: number
+}
+
 export interface AnalyticsSummary {
   total_conversations: number
   successful_reminders: number
@@ -201,6 +222,7 @@ export interface AnalyticsSummary {
   escalations: number
   average_call_duration_seconds: number
   completion_rate: number
+  language_analytics?: LanguageAnalyticsSummary
 }
 
 export interface CRMAnalytics {

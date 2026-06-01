@@ -136,6 +136,28 @@ export function AnalyticsPage() {
         </div>
       </div>
 
+      {agentAnalytics?.language_analytics &&
+        agentAnalytics.language_analytics.total_calls > 0 && (
+        <div className="card">
+          <h2>Language Analytics</h2>
+          <div className="stat-grid stat-grid-inline">
+            <StatCard
+              label="Language Switches"
+              value={agentAnalytics.language_analytics.language_switch_events}
+            />
+          </div>
+          <BarChart
+            data={Object.entries(agentAnalytics.language_analytics.calls_by_language).map(
+              ([lang, count], i) => ({
+                label: lang.toUpperCase(),
+                value: count,
+                color: ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899'][i % 7],
+              }),
+            )}
+          />
+        </div>
+      )}
+
       {handoffAnalytics && (
         <div className="card">
           <h2>Handoff & Escalation</h2>

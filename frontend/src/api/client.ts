@@ -127,6 +127,17 @@ export const api = {
   getAgentAnalytics: (callId: string) =>
     request<ConversationAnalytics>(`/agents/analytics/call/${callId}`),
   getAnalyticsSummary: () => request<AnalyticsSummary>('/agents/analytics/summary'),
+  getLanguageAnalytics: (agentId?: string) =>
+    request<import('../types').LanguageAnalyticsSummary>(
+      `/agents/analytics/languages${agentId ? `?agent_id=${encodeURIComponent(agentId)}` : ''}`,
+    ),
+  getAgentLanguages: (agentId: string) =>
+    request<import('../types').AgentLanguagesResponse>(`/agents/${agentId}/languages`),
+  configureAgentLanguages: (agentId: string, body: unknown) =>
+    request<import('../types').AgentLanguagesResponse>(`/agents/${agentId}/languages`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   // Escalations
   getEscalations: () => request<Escalation[]>('/escalations'),

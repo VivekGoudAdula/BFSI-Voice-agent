@@ -115,6 +115,13 @@ class AgentEngine:
         """Assemble the full system prompt with rules, state, and call context."""
         parts: list[str] = [agent_config.system_prompt]
 
+        if agent_config.language_code and agent_config.language_code != "en":
+            parts.append(
+                f"\n## Active Language\n"
+                f"Respond in {agent_config.language} ({agent_config.language_code}). "
+                f"Maintain the same language unless the customer requests a switch."
+            )
+
         if agent_config.rules:
             parts.append("\n## Agent Rules")
             for rule in agent_config.rules:

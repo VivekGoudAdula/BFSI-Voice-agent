@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from app.agents.loader import AgentLoader, RuntimeAgent
-from app.agents.seed.default_agents import (
-    DEFAULT_AGENT_ID,
-    SUPPORTED_LANGUAGES,
-    build_default_agent_seeds,
-)
+from app.agents.seed.default_agents import DEFAULT_AGENT_ID, build_default_agent_seeds
+from app.agents.seed.language_prompts import build_emi_prompt_translations
+from app.config.languages import SUPPORTED_LANGUAGES
+from app.models.language import AgentPromptTranslation
+from app.repositories.language_repository import LanguageRepository
 from app.core.config import Settings
 from app.core.exceptions import AgentNotFoundError, AgentValidationError
 from app.models.agent import AgentCreateRequest, AgentDocument, AgentUpdateRequest
@@ -43,6 +43,7 @@ class AgentManager:
     def seed_default_agents(self) -> None:
         """Upsert all default agent configurations from seed data."""
         default_voice = self._settings.elevenlabs_voice_id
+        lang_repo = LanguageRepository()
         for seed in build_default_agent_seeds(default_voice):
             agent_id = seed["agent_id"]
             if not seed.get("voice_id"):
@@ -50,6 +51,13 @@ class AgentManager:
             mongo_id = self._repo.upsert_by_agent_id(agent_id, seed)
             self._ensure_analytics_record(agent_id)
             logger.info("Seeded agent: %s (mongo_id=%s)", agent_id, mongo_id)
+
+        emi_translations = [
+            AgentPromptTranslation(**t)
+            for t in build_emi_prompt_translations(default_voice)
+        ]
+        lang_repo.upsert_prompt_translations("emi_agent", emi_translations)
+        logger.info("Seeded %d prompt translations for emi_agent", len(emi_translations))
 
     def register(self, payload: AgentCreateRequest) -> AgentDocument:
         """Create and register a new agent after validation."""
@@ -159,6 +167,9 @@ class AgentManager:
             "status": payload.status,
             "voice_id": voice_id,
             "language": payload.language,
+            "supported_languages": payload.supported_languages,
+            "default_language": payload.default_language,
+            "voice_configs": [vc.model_dump() for vc in payload.voice_configs],
             "system_prompt": payload.system_prompt,
             "tools": payload.tools,
             "compliance_rules": payload.compliance_rules,
@@ -251,6 +262,45 @@ class AgentManager:
         if errors:
             raise AgentValidationError("; ".join(errors))
 
+    def get_agent_document_raw(self, identifier: str) -> dict[str, Any]:
+        """Return raw MongoDB agent document for language runtime."""
+        doc = self._repo.find_by_identifier(identifier)
+        if not doc:
+            raise AgentNotFoundError(identifier)
+        return doc
+
+    def update_agent_languages(
+        self,
+        identifier: str,
+        *,
+        supported_languages: list[str],
+        default_language: str,
+        voice_configs: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        doc = self._repo.find_by_identifier(identifier)
+        if not doc:
+            raise AgentNotFoundError(identifier)
+
+        for lang in supported_languages:
+            if lang not in SUPPORTED_LANGUAGES:
+                raise AgentValidationError(f"Unsupported language: {lang}")
+        if default_language not in supported_languages:
+            raise AgentValidationError(
+                "default_language must be in supported_languages"
+            )
+
+        mongo_id = str(doc["_id"])
+        update_doc = {
+            "supported_languages": supported_languages,
+            "default_language": default_language,
+            "voice_configs": voice_configs,
+            "language": default_language,
+            "updated_at": datetime.now(timezone.utc),
+        }
+        updated = self._repo.update(mongo_id, update_doc)
+        self._invalidate_cache(doc["agent_id"])
+        return updated
+
     def _build_document(
         self, payload: AgentCreateRequest, *, now: datetime
     ) -> dict[str, Any]:
@@ -263,6 +313,9 @@ class AgentManager:
             "status": payload.status,
             "voice_id": voice_id,
             "language": payload.language,
+            "supported_languages": payload.supported_languages,
+            "default_language": payload.default_language,
+            "voice_configs": [vc.model_dump() for vc in payload.voice_configs],
             "system_prompt": payload.system_prompt,
             "tools": payload.tools,
             "compliance_rules": payload.compliance_rules,
@@ -320,6 +373,12 @@ class AgentManager:
             status=doc.get("status", "ACTIVE"),
             voice_id=doc.get("voice_id", ""),
             language=doc.get("language", "en"),
+            supported_languages=doc.get(
+                "supported_languages",
+                ["en", "hi", "te", "ta", "kn", "mr", "bn"],
+            ),
+            default_language=doc.get("default_language", doc.get("language", "en")),
+            voice_configs=doc.get("voice_configs", []),
             system_prompt=doc.get("system_prompt", ""),
             tools=doc.get("tools", []),
             compliance_rules=doc.get("compliance_rules", []),

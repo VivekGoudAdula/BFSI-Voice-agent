@@ -69,7 +69,7 @@ class CampaignService:
             logging.INFO,
             "Campaign created",
             campaign_id=campaign_id,
-            name=data.name,
+            campaign_name=data.name,
             event="campaign_created",
         )
         return self._repo.serialize_campaign(doc)

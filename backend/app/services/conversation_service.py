@@ -6,6 +6,7 @@ import logging
 import time
 
 from app.agents.engine import AgentEngine, MAX_REGENERATION_ATTEMPTS
+from app.agents.seed.default_agents import DEFAULT_AGENT_ID
 from app.agents.states import ConversationState
 from app.core.logging_config import log_with_context
 from app.models.agent import AgentConfig, AgentTurnContext
@@ -16,6 +17,7 @@ from app.services.call_session_manager import ActiveCallSession, CallSessionMana
 from app.services.compliance_middleware import ComplianceMiddleware
 from app.services.elevenlabs_service import ElevenLabsService
 from app.services.groq_service import GroqService
+from app.services.language_manager import LanguageManager
 from app.services.post_call_service import PostCallService
 from app.services.tool_execution_service import ToolExecutionService
 from app.tools.base import ToolContext
@@ -39,6 +41,7 @@ class ConversationService:
         tool_registry: ToolRegistry,
         tool_execution_service: ToolExecutionService,
         post_call_service: PostCallService,
+        language_manager: LanguageManager | None = None,
         compliance_middleware: ComplianceMiddleware | None = None,
     ) -> None:
         self._session_manager = session_manager
@@ -50,6 +53,7 @@ class ConversationService:
         self._tool_registry = tool_registry
         self._tool_executor = tool_execution_service
         self._post_call = post_call_service
+        self._language = language_manager
         self._compliance = compliance_middleware
         self._engine = AgentEngine()
 
@@ -94,6 +98,35 @@ class ConversationService:
                     return
 
             self._session_manager.add_user_message(session, text)
+
+            switch_ack: str | None = None
+            if self._language:
+                agent_doc = self._get_agent_doc(session)
+                detection, new_config, switch_ack = self._language.process_transcript(
+                    text=text,
+                    agent_doc=agent_doc,
+                    customer_id=session.customer_id,
+                    call_id=session.call_id,
+                    call_sid=session.call_sid,
+                    current_language=session.active_language,
+                )
+                session.language_confidence = detection.confidence
+                if new_config:
+                    session.agent_config = new_config
+                    session.active_language = detection.language
+                    session.language_switches += 1
+                    if session.analytics_id:
+                        self._analytics.record_language_switch(session.analytics_id)
+                        self._analytics.update_call_language(
+                            session.analytics_id, detection.language
+                        )
+
+            if switch_ack:
+                self._session_manager.add_assistant_message(session, switch_ack)
+                await self._speak(session, switch_ack)
+                if detection.switch_requested and len(text.split()) <= 12:
+                    self._session_manager.update_conversation_state(session)
+                    return
 
             if session.skip_next_agent_turn:
                 session.skip_next_agent_turn = False
@@ -349,6 +382,17 @@ class ConversationService:
             ),
             [],
         )
+
+    def _get_agent_doc(self, session: ActiveCallSession) -> dict:
+        agent_id = session.agent_id or (
+            session.agent_config.agent_id if session.agent_config else ""
+        )
+        if not agent_id and session.agent_config:
+            agent_id = session.agent_config.agent_id or DEFAULT_AGENT_ID
+        if not agent_id:
+            runtime = self._agent_manager.get_default_agent()
+            agent_id = runtime.agent_id
+        return self._agent_manager.get_agent_document_raw(agent_id)
 
     def _get_agent_config(self, session: ActiveCallSession) -> AgentConfig:
         if session.agent_config:

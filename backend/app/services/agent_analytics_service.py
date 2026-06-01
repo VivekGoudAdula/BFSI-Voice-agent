@@ -24,6 +24,7 @@ class AgentAnalyticsService:
         agent_id: str,
         agent_name: str,
         customer_id: str,
+        language: str = "en",
     ) -> str:
         """Create an analytics record when a call session starts."""
         now = datetime.now(timezone.utc)
@@ -43,6 +44,8 @@ class AgentAnalyticsService:
             "escalation_reason": "",
             "turn_count": 0,
             "completed": False,
+            "language": language,
+            "language_switches": 0,
         }
 
         try:
@@ -95,6 +98,32 @@ class AgentAnalyticsService:
             )
         except PyMongoError as exc:
             logger.error("Failed to update analytics turn: %s", exc)
+
+    def record_language_switch(self, analytics_id: str) -> None:
+        try:
+            oid = ObjectId(analytics_id)
+        except Exception:
+            return
+        try:
+            MongoDB.conversation_analytics().update_one(
+                {"_id": oid},
+                {"$inc": {"language_switches": 1}},
+            )
+        except PyMongoError as exc:
+            logger.error("Failed to record language switch: %s", exc)
+
+    def update_call_language(self, analytics_id: str, language: str) -> None:
+        try:
+            oid = ObjectId(analytics_id)
+        except Exception:
+            return
+        try:
+            MongoDB.conversation_analytics().update_one(
+                {"_id": oid},
+                {"$set": {"language": language}},
+            )
+        except PyMongoError as exc:
+            logger.error("Failed to update call language: %s", exc)
 
     def end_conversation(
         self,
@@ -288,6 +317,14 @@ class AgentAnalyticsService:
 
         completion_rate = (completed / total * 100) if total > 0 else 0.0
 
+        language_analytics: dict[str, Any] = {}
+        try:
+            from app.services.language_analytics_service import LanguageAnalyticsService
+
+            language_analytics = LanguageAnalyticsService().get_summary().model_dump()
+        except Exception as exc:
+            logger.warning("Language analytics unavailable: %s", exc)
+
         return AnalyticsSummary(
             total_conversations=total,
             successful_reminders=successful,
@@ -295,6 +332,7 @@ class AgentAnalyticsService:
             escalations=escalations,
             average_call_duration_seconds=round(avg_duration or 0.0, 1),
             completion_rate=round(completion_rate, 1),
+            language_analytics=language_analytics,
         )
 
     @staticmethod
@@ -316,4 +354,6 @@ class AgentAnalyticsService:
             escalation_reason=doc.get("escalation_reason", ""),
             turn_count=doc.get("turn_count", 0),
             completed=doc.get("completed", False),
+            language=doc.get("language", "en"),
+            language_switches=doc.get("language_switches", 0),
         )

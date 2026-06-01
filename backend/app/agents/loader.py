@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from app.agents.seed.default_agents import SUPPORTED_LANGUAGES
+from app.config.languages import SUPPORTED_LANGUAGES
 from app.models.agent import AgentConfig, EscalationRule, ObjectionRule
 from app.tools.registry import ToolRegistry
 

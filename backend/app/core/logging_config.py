@@ -6,6 +6,11 @@ from typing import Any
 
 from app.core.config import get_settings
 
+# Keys that cannot be passed via logging `extra` (LogRecord reserved attributes).
+_RESERVED_LOGRECORD_KEYS = frozenset(
+    logging.makeLogRecord({}).__dict__.keys()
+)
+
 
 class StructuredFormatter(logging.Formatter):
     """Formatter that produces consistent, parseable log lines."""
@@ -14,6 +19,8 @@ class StructuredFormatter(logging.Formatter):
         base = super().format(record)
         extras: list[str] = []
         for key in (
+            "campaign_id",
+            "campaign_name",
             "customer_id",
             "call_id",
             "phone",
@@ -58,5 +65,11 @@ def log_with_context(
     **context: Any,
 ) -> None:
     """Emit a log record with optional structured context fields."""
-    extra = {k: v for k, v in context.items() if v is not None}
+    extra: dict[str, Any] = {}
+    for key, value in context.items():
+        if value is None:
+            continue
+        if key in _RESERVED_LOGRECORD_KEYS:
+            key = f"ctx_{key}"
+        extra[key] = value
     logger.log(level, message, extra=extra)

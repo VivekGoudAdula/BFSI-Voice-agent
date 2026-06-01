@@ -7,6 +7,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agents.states import ConversationState
+from app.models.language import VoiceLanguageConfig
 
 
 class AgentStatus(str, Enum):
@@ -93,6 +94,11 @@ class AgentCreateRequest(BaseModel):
     status: str = AgentStatus.ACTIVE.value
     voice_id: str = ""
     language: str = "en"
+    supported_languages: list[str] = Field(
+        default_factory=lambda: ["en", "hi", "te", "ta", "kn", "mr", "bn"]
+    )
+    default_language: str = "en"
+    voice_configs: list[VoiceLanguageConfig] = Field(default_factory=list)
     system_prompt: str = Field(..., min_length=10)
     tools: list[str] = Field(default_factory=list)
     compliance_rules: list[str] = Field(default_factory=list)
@@ -112,6 +118,11 @@ class AgentUpdateRequest(BaseModel):
     status: str = AgentStatus.ACTIVE.value
     voice_id: str = ""
     language: str = "en"
+    supported_languages: list[str] = Field(
+        default_factory=lambda: ["en", "hi", "te", "ta", "kn", "mr", "bn"]
+    )
+    default_language: str = "en"
+    voice_configs: list[VoiceLanguageConfig] = Field(default_factory=list)
     system_prompt: str = Field(..., min_length=10)
     tools: list[str] = Field(default_factory=list)
     compliance_rules: list[str] = Field(default_factory=list)
@@ -135,6 +146,11 @@ class AgentDocument(BaseModel):
     status: str = AgentStatus.ACTIVE.value
     voice_id: str = ""
     language: str = "en"
+    supported_languages: list[str] = Field(
+        default_factory=lambda: ["en", "hi", "te", "ta", "kn", "mr", "bn"]
+    )
+    default_language: str = "en"
+    voice_configs: list[VoiceLanguageConfig] = Field(default_factory=list)
     system_prompt: str
     tools: list[str] = Field(default_factory=list)
     compliance_rules: list[str] = Field(default_factory=list)
@@ -214,6 +230,8 @@ class ConversationAnalytics(BaseModel):
     escalation_reason: str = ""
     turn_count: int = 0
     completed: bool = False
+    language: str = "en"
+    language_switches: int = 0
 
 
 class AnalyticsSummary(BaseModel):
@@ -225,3 +243,4 @@ class AnalyticsSummary(BaseModel):
     escalations: int = 0
     average_call_duration_seconds: float = 0.0
     completion_rate: float = 0.0
+    language_analytics: dict[str, Any] = Field(default_factory=dict)

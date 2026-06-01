@@ -2,16 +2,10 @@
 
 from typing import Any
 
-DEFAULT_AGENT_ID = "emi_agent"
+from app.agents.seed.language_prompts import build_multilingual_agent_fields
+from app.config.languages import SUPPORTED_LANGUAGES
 
-SUPPORTED_LANGUAGES: dict[str, str] = {
-    "en": "English",
-    "hi": "Hindi",
-    "te": "Telugu",
-    "ta": "Tamil",
-    "mr": "Marathi",
-    "bn": "Bengali",
-}
+DEFAULT_AGENT_ID = "emi_agent"
 
 
 def _greeting(name: str, purpose: str) -> str:
@@ -24,6 +18,7 @@ def _greeting(name: str, purpose: str) -> str:
 def build_default_agent_seeds(default_voice_id: str = "") -> list[dict[str, Any]]:
     """Return all default agent configuration documents for MongoDB seeding."""
     voice = default_voice_id or ""
+    multilingual = build_multilingual_agent_fields(voice)
 
     return [
         {
@@ -33,6 +28,7 @@ def build_default_agent_seeds(default_voice_id: str = "") -> list[dict[str, Any]
             "status": "ACTIVE",
             "voice_id": voice,
             "language": "en",
+            **multilingual,
             "system_prompt": """You are ABC Bank's EMI Reminder Assistant.
 
 Your job is to politely remind customers about their upcoming or overdue EMI payments.

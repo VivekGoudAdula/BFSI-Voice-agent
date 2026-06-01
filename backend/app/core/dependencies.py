@@ -26,7 +26,11 @@ from app.services.handoff_analytics_service import HandoffAnalyticsService
 from app.services.handoff_service import HandoffService
 from app.services.human_handoff_service import HumanHandoffService
 from app.services.sentiment_service import SentimentService
+from app.repositories.language_repository import LanguageRepository
 from app.services.conversation_service import ConversationService
+from app.services.language_analytics_service import LanguageAnalyticsService
+from app.services.language_detection_service import LanguageDetectionService
+from app.services.language_manager import LanguageManager
 from app.services.crm_data_service import CRMDataService
 from app.services.admin_service import AdminService
 from app.services.customer_service import CustomerService
@@ -149,6 +153,30 @@ def get_agent_analytics_service() -> AgentAnalyticsService:
 
 
 @lru_cache
+def get_language_repository() -> LanguageRepository:
+    return LanguageRepository()
+
+
+@lru_cache
+def get_language_detection_service() -> LanguageDetectionService:
+    return LanguageDetectionService(get_language_repository())
+
+
+@lru_cache
+def get_language_manager() -> LanguageManager:
+    return LanguageManager(
+        repository=get_language_repository(),
+        detection_service=get_language_detection_service(),
+        agent_loader=get_agent_loader(),
+    )
+
+
+@lru_cache
+def get_language_analytics_service() -> LanguageAnalyticsService:
+    return LanguageAnalyticsService()
+
+
+@lru_cache
 def get_banking_service() -> BankingService:
     return BankingService()
 
@@ -267,6 +295,7 @@ def get_conversation_service() -> ConversationService:
         tool_registry=get_tool_registry(),
         tool_execution_service=get_tool_execution_service(),
         post_call_service=get_post_call_service(),
+        language_manager=get_language_manager(),
         compliance_middleware=get_compliance_middleware(),
     )
 

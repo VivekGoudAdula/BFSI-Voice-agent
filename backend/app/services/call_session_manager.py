@@ -108,6 +108,10 @@ class ActiveCallSession:
     payment_link_sent: bool = False
     payment_link_result: dict[str, Any] = field(default_factory=dict)
 
+    active_language: str = "en"
+    language_confidence: float = 0.0
+    language_switches: int = 0
+
     messages: list[dict[str, str]] = field(default_factory=list)
 
     is_ai_speaking: bool = False
@@ -229,6 +233,8 @@ class CallSessionManager:
             "agent_context": ctx,
 
             "objections_raised": [],
+
+            "language": "en",
 
             "messages": messages,
 
@@ -461,6 +467,10 @@ class CallSessionManager:
                         "identity_verified": session.identity_verified,
 
                         "objections_raised": session.objections_raised,
+
+                        "language": session.active_language,
+
+                        "language_switches": session.language_switches,
 
                         "messages": session.messages,
 
