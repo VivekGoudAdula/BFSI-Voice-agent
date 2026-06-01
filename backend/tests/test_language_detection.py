@@ -4,7 +4,7 @@ import pytest
 
 from app.services.language_detection_service import LanguageDetectionService
 
-SUPPORTED = ["en", "hi", "te", "ta", "kn", "mr", "bn"]
+SUPPORTED = ["en", "hi"]
 
 
 @pytest.fixture
@@ -14,12 +14,6 @@ def detection() -> LanguageDetectionService:
 
 def test_switch_request_hindi(detection: LanguageDetectionService) -> None:
     assert detection.detect_switch_request("Can you speak Hindi?", SUPPORTED) == "hi"
-
-
-def test_switch_request_telugu(detection: LanguageDetectionService) -> None:
-    assert (
-        detection.detect_switch_request("తెలుగులో మాట్లాడండి", SUPPORTED) == "te"
-    )
 
 
 def test_switch_request_english(detection: LanguageDetectionService) -> None:
@@ -40,10 +34,11 @@ def test_detect_hindi_script(detection: LanguageDetectionService) -> None:
     assert result.confidence > 0.5
 
 
-def test_detect_telugu_script(detection: LanguageDetectionService) -> None:
+def test_detect_hinglish_as_hindi(detection: LanguageDetectionService) -> None:
     result = detection.detect_language(
-        "నా EMI ఎప్పుడు చెల్లించాలి?",
+        "Ji haan, aapka EMI kal due hai kya?",
         supported=SUPPORTED,
         previous_language="en",
     )
-    assert result.language == "te"
+    assert result.language == "hi"
+    assert result.is_code_mixed is True

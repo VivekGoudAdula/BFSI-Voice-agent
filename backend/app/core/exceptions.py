@@ -34,6 +34,14 @@ class ElevenLabsServiceError(AppException):
         )
 
 
+class SarvamServiceError(AppException):
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Sarvam API error: {message}",
+        )
+
+
 class TwilioServiceError(AppException):
     def __init__(self, message: str) -> None:
         super().__init__(

@@ -30,7 +30,12 @@ class StructuredFormatter(logging.Formatter):
             "stt_ms",
             "groq_ms",
             "elevenlabs_ms",
+            "sarvam_ms",
+            "tts_ms",
+            "tts_provider",
             "total_ms",
+            "active_language",
+            "transcript_raw",
         ):
             if hasattr(record, key):
                 extras.append(f"{key}={getattr(record, key)}")
@@ -43,6 +48,12 @@ def setup_logging() -> None:
     """Configure root logger with structured formatting."""
     settings = get_settings()
     level = getattr(logging, settings.log_level.upper(), logging.INFO)
+
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(

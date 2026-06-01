@@ -43,12 +43,8 @@ class GetLoanDetailsTool(Tool):
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
         customer_id = context.customer_id or arguments.get("customer_id")
-        if not context.identity_verified:
-            return ToolResult(
-                success=False,
-                data={},
-                error="Identity must be verified before accessing loan details.",
-            )
+        if not customer_id:
+            return ToolResult(success=False, data={}, error="customer_id is required.")
         try:
             data = self._banking.get_loan_details(customer_id)
             return ToolResult(success=True, data=data)
@@ -83,11 +79,11 @@ class CheckEmiDueTool(Tool):
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
         customer_id = context.customer_id or arguments.get("customer_id")
-        if not context.identity_verified:
+        if not customer_id:
             return ToolResult(
                 success=False,
                 data={},
-                error="Identity must be verified before checking EMI details.",
+                error="customer_id is required.",
             )
         try:
             data = self._banking.check_emi_due(customer_id)
@@ -183,12 +179,8 @@ class SendPaymentLinkTool(Tool):
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
         customer_id = context.customer_id or arguments.get("customer_id")
-        if not context.identity_verified:
-            return ToolResult(
-                success=False,
-                data={},
-                error="Identity must be verified before sending payment link.",
-            )
+        if not customer_id:
+            return ToolResult(success=False, data={}, error="customer_id is required.")
 
         if context.extra.get("payment_link_sent") or "send_payment_link" in context.tools_used:
             cached = context.extra.get("payment_link_result") or {}

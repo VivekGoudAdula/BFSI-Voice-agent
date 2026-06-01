@@ -17,7 +17,7 @@ class AgentLanguageSettings(BaseModel):
     """Per-agent multilingual configuration."""
 
     supported_languages: list[str] = Field(
-        default_factory=lambda: ["en", "hi", "te", "ta", "kn", "mr", "bn"]
+        default_factory=lambda: ["en", "hi"]
     )
     default_language: str = "en"
     voice_configs: list[VoiceLanguageConfig] = Field(default_factory=list)

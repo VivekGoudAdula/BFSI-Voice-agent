@@ -33,6 +33,8 @@ class RuntimeAgent:
     unavailable_info_message: str = ""
     purpose: str = ""
     version: int = 1
+    supported_languages: list[str] = field(default_factory=lambda: ["en", "hi"])
+    default_language: str = "en"
     config: Optional[AgentConfig] = None
 
     def to_agent_config(self) -> AgentConfig:
@@ -47,6 +49,8 @@ class RuntimeAgent:
             description=self.description,
             language=self.language_name,
             language_code=self.language,
+            supported_languages=list(self.supported_languages),
+            default_language=self.default_language,
             voice=self.voice_id,
             system_prompt=self.system_prompt,
             rules=self.compliance_rules,
@@ -72,8 +76,10 @@ class AgentLoader:
 
     def build_from_document(self, doc: dict[str, Any]) -> RuntimeAgent:
         """Build a RuntimeAgent from a MongoDB agent document."""
-        language_code = doc.get("language", "en")
+        language_code = doc.get("default_language") or doc.get("language", "en")
         language_name = SUPPORTED_LANGUAGES.get(language_code, "English")
+        supported_languages = doc.get("supported_languages") or ["en", "hi"]
+        default_language = doc.get("default_language") or language_code
         voice_id = doc.get("voice_id", "") or doc.get("voice", "")
 
         escalation_rules = [
@@ -121,6 +127,8 @@ class AgentLoader:
             ),
             purpose=doc.get("purpose", doc.get("description", "")),
             version=doc.get("version", 1),
+            supported_languages=supported_languages,
+            default_language=default_language,
         )
         runtime.to_agent_config()
         return runtime

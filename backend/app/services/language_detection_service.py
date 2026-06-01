@@ -7,8 +7,8 @@ from typing import Optional
 
 from app.config.languages import (
     HINDI_KEYWORDS,
+    HINGLISH_KEYWORDS,
     LANGUAGE_SWITCH_PATTERNS,
-    MARATHI_KEYWORDS,
     SCRIPT_RANGES,
     SUPPORTED_LANGUAGES,
     normalize_language_code,
@@ -82,15 +82,25 @@ class LanguageDetectionService:
             for lo, hi in SCRIPT_RANGES.get("hi", [])
         )
         if devanagari > 0:
-            marathi_hits = sum(1 for w in MARATHI_KEYWORDS if w in text)
             hindi_hits = sum(1 for w in HINDI_KEYWORDS if w in text)
-            if "mr" in supported and marathi_hits > hindi_hits:
-                lang_scores["mr"] = devanagari / total_chars
-            elif "hi" in supported:
+            if "hi" in supported and hindi_hits >= 0:
                 lang_scores["hi"] = devanagari / total_chars
 
         if latin / total_chars > 0.5 and "en" in supported:
             lang_scores["en"] = latin / total_chars
+
+        if "hi" in supported and "en" in supported:
+            words = re.findall(r"[a-zA-Z']+", text.lower())
+            if words:
+                hits = sum(1 for w in words if w in HINGLISH_KEYWORDS)
+                if hits >= 2 and latin > 0:
+                    return LanguageDetectionResult(
+                        language="hi",
+                        confidence=0.84,
+                        is_code_mixed=True,
+                        detected_scripts=script_counts,
+                        previous_language=previous_language,
+                    )
 
         if not lang_scores:
             return LanguageDetectionResult(
@@ -158,8 +168,6 @@ class LanguageDetectionService:
             return SUPPORTED_LANGUAGES.get(language, language)
         if language == "hi":
             return "Hinglish"
-        if language == "te":
-            return "Telugu-English"
-        if language == "ta":
-            return "Tamil-English"
+        if language == "en":
+            return "Hinglish"
         return f"{SUPPORTED_LANGUAGES.get(language, language)}-English"

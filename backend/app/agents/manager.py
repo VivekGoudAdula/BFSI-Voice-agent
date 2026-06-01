@@ -40,9 +40,14 @@ class AgentManager:
         self._tools = tool_registry
         self._settings = settings
 
+    def _default_agent_voice_id(self) -> str:
+        if self._settings.tts_provider.strip().lower() == "sarvam":
+            return self._settings.sarvam_speaker_default
+        return self._settings.elevenlabs_voice_id
+
     def seed_default_agents(self) -> None:
         """Upsert all default agent configurations from seed data."""
-        default_voice = self._settings.elevenlabs_voice_id
+        default_voice = self._default_agent_voice_id()
         lang_repo = LanguageRepository()
         for seed in build_default_agent_seeds(default_voice):
             agent_id = seed["agent_id"]
@@ -62,7 +67,7 @@ class AgentManager:
     def register(self, payload: AgentCreateRequest) -> AgentDocument:
         """Create and register a new agent after validation."""
         self.validate_config(
-            voice_id=payload.voice_id or self._settings.elevenlabs_voice_id,
+            voice_id=payload.voice_id or self._default_agent_voice_id(),
             tools=payload.tools,
             system_prompt=payload.system_prompt,
             language=payload.language,
@@ -148,7 +153,7 @@ class AgentManager:
 
         voice_id = payload.voice_id or doc.get("voice_id", "")
         if not voice_id:
-            voice_id = self._settings.elevenlabs_voice_id
+            voice_id = self._default_agent_voice_id()
 
         self.validate_config(
             voice_id=voice_id,
@@ -205,7 +210,7 @@ class AgentManager:
             raise AgentNotFoundError(identifier)
 
         self.validate_config(
-            voice_id=doc.get("voice_id") or self._settings.elevenlabs_voice_id,
+            voice_id=doc.get("voice_id") or self._default_agent_voice_id(),
             tools=doc.get("tools", []),
             system_prompt=doc.get("system_prompt", ""),
             language=doc.get("language", "en"),
@@ -304,7 +309,7 @@ class AgentManager:
     def _build_document(
         self, payload: AgentCreateRequest, *, now: datetime
     ) -> dict[str, Any]:
-        voice_id = payload.voice_id or self._settings.elevenlabs_voice_id
+        voice_id = payload.voice_id or self._default_agent_voice_id()
         return {
             "agent_id": payload.agent_id,
             "name": payload.name,

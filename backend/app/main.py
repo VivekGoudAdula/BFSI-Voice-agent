@@ -24,7 +24,10 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     settings.audio_dir.mkdir(parents=True, exist_ok=True)
     MongoDB.connect(settings)
-    get_agent_manager().seed_default_agents()
+    if settings.seed_on_startup:
+        get_agent_manager().seed_default_agents()
+    else:
+        logger.info("Skipping agent seeding on startup (SEED_ON_STARTUP=false)")
     logger.info("AI Voice Agent Platform started | base_url=%s", settings.base_url)
     yield
     MongoDB.disconnect()

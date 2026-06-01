@@ -45,6 +45,8 @@ class AgentConfig(BaseModel):
     description: str = ""
     language: str = "English"
     language_code: str = "en"
+    supported_languages: list[str] = Field(default_factory=lambda: ["en", "hi"])
+    default_language: str = "en"
     voice: str = ""
     system_prompt: str
     rules: list[str] = Field(default_factory=list)
@@ -95,7 +97,7 @@ class AgentCreateRequest(BaseModel):
     voice_id: str = ""
     language: str = "en"
     supported_languages: list[str] = Field(
-        default_factory=lambda: ["en", "hi", "te", "ta", "kn", "mr", "bn"]
+        default_factory=lambda: ["en", "hi"]
     )
     default_language: str = "en"
     voice_configs: list[VoiceLanguageConfig] = Field(default_factory=list)
@@ -119,7 +121,7 @@ class AgentUpdateRequest(BaseModel):
     voice_id: str = ""
     language: str = "en"
     supported_languages: list[str] = Field(
-        default_factory=lambda: ["en", "hi", "te", "ta", "kn", "mr", "bn"]
+        default_factory=lambda: ["en", "hi"]
     )
     default_language: str = "en"
     voice_configs: list[VoiceLanguageConfig] = Field(default_factory=list)
@@ -147,7 +149,7 @@ class AgentDocument(BaseModel):
     voice_id: str = ""
     language: str = "en"
     supported_languages: list[str] = Field(
-        default_factory=lambda: ["en", "hi", "te", "ta", "kn", "mr", "bn"]
+        default_factory=lambda: ["en", "hi"]
     )
     default_language: str = "en"
     voice_configs: list[VoiceLanguageConfig] = Field(default_factory=list)

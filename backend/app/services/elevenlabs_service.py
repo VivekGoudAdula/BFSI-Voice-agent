@@ -213,7 +213,10 @@ class ElevenLabsService:
         return filename, file_path
 
     async def generate_response_audio(
-        self, text: str, voice_id: str | None = None
+        self,
+        text: str,
+        voice_id: str | None = None,
+        _language_code: str = "en",
     ) -> bytes:
         """
         Generate telephony-ready mulaw 8 kHz audio for real-time playback.

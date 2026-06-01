@@ -72,6 +72,8 @@ class ActiveCallSession:
 
     session_id: str
 
+    customer_phone: str = ""
+
     agent_id: str = ""
 
     agent_config: Optional[AgentConfig] = None
@@ -100,6 +102,7 @@ class ActiveCallSession:
 
     # Phase 8 — Compliance
     awaiting_consent: bool = False
+    awaiting_initial_language: bool = False
     consent_status: str = ""
     consent_denied: bool = False
     pending_greeting: str = ""
@@ -111,6 +114,7 @@ class ActiveCallSession:
     active_language: str = "en"
     language_confidence: float = 0.0
     language_switches: int = 0
+    stt: Any = None
 
     messages: list[dict[str, str]] = field(default_factory=list)
 
@@ -118,9 +122,22 @@ class ActiveCallSession:
 
     is_processing: bool = False
 
+    processing_task: Optional[asyncio.Task[None]] = None
+
     playback_task: Optional[asyncio.Task[None]] = None
 
     playback_cancelled: bool = False
+    ignore_barge_in: bool = False
+
+    active_turn: str = "ai"
+    last_user_speech_started_at: Optional[datetime] = None
+    last_user_speech_stopped_at: Optional[datetime] = None
+    interruption_count: int = 0
+    turn_count: int = 0
+    total_turn_duration_ms: float = 0.0
+    response_latency_ms_sum: float = 0.0
+    response_latency_count: int = 0
+    last_customer_sentiment: str = "neutral"
 
     websocket: Any = None
 
@@ -169,6 +186,8 @@ class CallSessionManager:
         customer_id: str,
 
         customer_name: str,
+
+        customer_phone: str = "",
 
         *,
 
@@ -288,6 +307,8 @@ class CallSessionManager:
 
             customer_name=customer_name,
 
+            customer_phone=customer_phone,
+
             session_id=session_id,
 
             agent_id=agent_id,
@@ -389,18 +410,19 @@ class CallSessionManager:
                 content=content,
             )
 
+        from app.services.language_manager import LanguageManager
+
+        log_msg, log_extra = LanguageManager.format_transcript_log(
+            content,
+            active_language=session.active_language or "en",
+        )
         log_with_context(
-
             logger,
-
             logging.INFO,
-
-            f"User said: {content[:120]}",
-
+            log_msg,
             call_id=session.call_id,
-
             event="user_transcript",
-
+            **log_extra,
         )
 
 
@@ -432,18 +454,18 @@ class CallSessionManager:
                 content=content,
             )
 
+        assistant_log = (
+            f"एजेंट ने कहा: {content[:120]}"
+            if (session.active_language or "") == "hi"
+            else f"Assistant said: {content[:120]}"
+        )
         log_with_context(
-
             logger,
-
             logging.INFO,
-
-            f"Assistant said: {content[:120]}",
-
+            assistant_log,
             call_id=session.call_id,
-
             event="assistant_response",
-
+            active_language=session.active_language or "en",
         )
 
 

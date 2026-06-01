@@ -35,11 +35,19 @@ from app.services.crm_data_service import CRMDataService
 from app.services.admin_service import AdminService
 from app.services.customer_service import CustomerService
 from app.services.elevenlabs_service import ElevenLabsService
+from app.services.tts_service import TextToSpeechService
 from app.services.groq_service import GroqService
 from app.services.post_call_service import PostCallService
 from app.services.tool_execution_service import ToolExecutionService
 from app.services.twilio_service import TwilioService
 from app.services.sms_service import SMSService
+from app.services.barge_in_service import BargeInService
+from app.services.conversation_behavior_engine import ConversationBehaviorEngine
+from app.services.conversation_quality_service import ConversationQualityService
+from app.services.sentiment_aware_response_engine import SentimentAwareResponseEngine
+from app.services.speech_pacing_manager import SpeechPacingManager
+from app.services.turn_manager import TurnManager
+from app.services.voice_activity_service import VoiceActivityService
 from app.tools.registry import ToolRegistry
 
 
@@ -50,6 +58,11 @@ def settings_dep() -> Settings:
 @lru_cache
 def get_elevenlabs_service() -> ElevenLabsService:
     return ElevenLabsService(get_settings())
+
+
+@lru_cache
+def get_tts_service() -> TextToSpeechService:
+    return TextToSpeechService(get_settings())
 
 
 @lru_cache
@@ -177,6 +190,44 @@ def get_language_analytics_service() -> LanguageAnalyticsService:
 
 
 @lru_cache
+def get_turn_manager() -> TurnManager:
+    return TurnManager()
+
+
+@lru_cache
+def get_voice_activity_service() -> VoiceActivityService:
+    return VoiceActivityService()
+
+
+@lru_cache
+def get_speech_pacing_manager() -> SpeechPacingManager:
+    return SpeechPacingManager()
+
+
+@lru_cache
+def get_conversation_behavior_engine() -> ConversationBehaviorEngine:
+    return ConversationBehaviorEngine()
+
+
+@lru_cache
+def get_sentiment_aware_response_engine() -> SentimentAwareResponseEngine:
+    return SentimentAwareResponseEngine()
+
+
+@lru_cache
+def get_conversation_quality_service() -> ConversationQualityService:
+    return ConversationQualityService()
+
+
+@lru_cache
+def get_barge_in_service() -> BargeInService:
+    return BargeInService(
+        session_manager=get_call_session_manager(),
+        turn_manager=get_turn_manager(),
+    )
+
+
+@lru_cache
 def get_banking_service() -> BankingService:
     return BankingService()
 
@@ -288,7 +339,7 @@ def get_conversation_service() -> ConversationService:
     return ConversationService(
         session_manager=get_call_session_manager(),
         groq_service=get_groq_service(),
-        elevenlabs_service=get_elevenlabs_service(),
+        tts_service=get_tts_service(),
         agent_config_service=get_agent_config_service(),
         agent_manager=get_agent_manager(),
         agent_analytics_service=get_agent_analytics_service(),
@@ -297,6 +348,13 @@ def get_conversation_service() -> ConversationService:
         post_call_service=get_post_call_service(),
         language_manager=get_language_manager(),
         compliance_middleware=get_compliance_middleware(),
+        barge_in_service=get_barge_in_service(),
+        voice_activity_service=get_voice_activity_service(),
+        turn_manager=get_turn_manager(),
+        speech_pacing_manager=get_speech_pacing_manager(),
+        behavior_engine=get_conversation_behavior_engine(),
+        sentiment_aware_engine=get_sentiment_aware_response_engine(),
+        conversation_quality_service=get_conversation_quality_service(),
     )
 
 

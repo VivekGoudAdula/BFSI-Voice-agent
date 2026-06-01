@@ -29,13 +29,18 @@ You have access to banking tools. You MUST use tools for any customer request in
 - Loan details → get_loan_details
 - EMI amount, due date, or payment status → check_emi_due
 - Payment link via SMS → send_payment_link (ONLY when customer explicitly asks to receive the link, or says yes after you offer to send it)
+- Payment link goes to the mobile number already on file — NEVER ask the customer to read out their number.
 - Callback scheduling → schedule_callback
 - Human agent / complaint / escalation → transfer_to_human
 
 NEVER invent or guess loan amounts, EMI values, due dates, or account details.
 ALWAYS call the appropriate tool first, then respond using ONLY the tool result data.
 Keep responses to 2-3 natural sentences after receiving tool results.
-If identity is not verified, verify identity before calling account-related tools.
+
+## Customer data (outbound calls)
+All account data is already linked to this call in the system (customer_id).
+NEVER ask for date of birth, mobile number, OTP, PAN, or last-four digits.
+Identity = confirm you are speaking with the right person by name only, then discuss EMI.
 """
 
 STATE_GUIDANCE: dict[ConversationState, str] = {
@@ -44,8 +49,9 @@ STATE_GUIDANCE: dict[ConversationState, str] = {
         "State the purpose of the call and begin identity verification."
     ),
     ConversationState.IDENTITY_VERIFICATION: (
-        "State: IDENTITY_VERIFICATION. Confirm you are speaking with the correct person. "
-        "Do NOT discuss account details until identity is confirmed."
+        "State: IDENTITY_VERIFICATION. Ask only: are you speaking with [customer name]? "
+        "Do NOT ask for DOB, mobile number, OTP, or PAN — data is already in the system. "
+        "Once they confirm their name, call check_emi_due and share the EMI reminder."
     ),
     ConversationState.EMI_DISCUSSION: (
         "State: EMI_DISCUSSION. Share EMI due date and amount ONLY from provided context. "
@@ -144,11 +150,19 @@ class AgentEngine:
         if ctx.get("payment_status"):
             parts.append(f"- Payment status: {ctx['payment_status']}")
 
-        if not ctx.get("emi_amount") and not ctx.get("due_date"):
+        if ctx.get("emi_amount") or ctx.get("due_date"):
             parts.append(
-                "- NOTE: EMI amount and due date are NOT available. "
-                "Do NOT guess or invent these values."
+                "- EMI details are preloaded from the bank system for this customer. "
+                "Use check_emi_due if you need a fresh lookup; do NOT ask the customer for account info."
             )
+        else:
+            parts.append(
+                "- NOTE: EMI amount and due date are NOT in context yet. "
+                "Call check_emi_due after name confirmation; do NOT guess values."
+            )
+        parts.append(
+            "- NEVER ask the customer for date of birth, mobile number, OTP, or PAN on this call."
+        )
 
         if turn_context.objections_raised:
             parts.append(
@@ -246,6 +260,8 @@ class AgentEngine:
     def build_emi_summary_response(
         customer_name: str,
         emi_data: dict[str, Any],
+        *,
+        language: str = "en",
     ) -> str:
         """Scripted EMI summary when LLM is unavailable after identity confirmation."""
         name = customer_name.strip() or "there"
@@ -253,6 +269,12 @@ class AgentEngine:
         due_date = emi_data.get("due_date", "")
         status = str(emi_data.get("status", "pending")).lower()
         amount_text = f"Rs. {amount:,}" if isinstance(amount, int) else str(amount)
+        if language == "hi":
+            return (
+                f"धन्यवाद {name} जी, पुष्टि के लिए। "
+                f"आपकी EMI {amount_text} की देय तिथि {due_date} थी और स्थिति {status} है। "
+                "क्या आप ऑनलाइन भुगतान करेंगे, या मैं आपके पंजीकृत मोबाइल पर पेमेंट लिंक भेज दूँ?"
+            )
         return (
             f"Thank you for confirming, {name}. "
             f"Your EMI of {amount_text} was due on {due_date} and the status is {status}. "
@@ -277,7 +299,7 @@ class AgentEngine:
             turn_context.current_state = ConversationState.ESCALATION
             return turn_context
 
-        if self._is_identity_confirmed(text):
+        if self._is_identity_confirmed(text, turn_context.customer_name):
             turn_context.identity_verified = True
 
         if self._is_call_ending(text):
@@ -374,12 +396,49 @@ class AgentEngine:
         }
 
     @staticmethod
-    def _is_identity_confirmed(text: str) -> bool:
+    def _is_identity_confirmed(text: str, customer_name: str = "") -> bool:
+        lower = text.lower()
         patterns = [
-            r"\b(yes|yeah|yep|correct|speaking|this is|that's me|that is me)\b",
-            r"\b(i am|i'm)\b",
+            r"\b(yes|yeah|yep|haan|ji|correct|speaking|this is|that's me|that is me)\b",
+            r"\b(i am|i'm|main hoon|mein hoon|main hu|mein hu)\b",
+            r"\b(mera naam|my name is|naam hai)\b",
+            r"नाम\s+.+\s+है",
+            r"मैं\s+.+?\s+हू[ंँ]",
+            r"ह[ााँ]ं[,،]?\s*मैं",
+            r"जी[,،]?\s*मैं",
         ]
-        return any(re.search(p, text, re.IGNORECASE) for p in patterns)
+        if any(re.search(p, text, re.IGNORECASE) for p in patterns):
+            return True
+        if re.search(r"ह[ााँ]ं", text) and AgentEngine._customer_name_in_utterance(
+            text, customer_name
+        ):
+            return True
+        if customer_name:
+            first = customer_name.strip().split()[0].lower()
+            if len(first) >= 3 and first in lower:
+                return True
+            if AgentEngine._customer_name_in_utterance(text, customer_name):
+                return True
+        return False
+
+    @staticmethod
+    def _customer_name_in_utterance(text: str, customer_name: str) -> bool:
+        if not customer_name:
+            return False
+        first = customer_name.strip().split()[0].lower()
+        if len(first) >= 3 and first in text.lower():
+            return True
+        devanagari_names: dict[str, tuple[str, ...]] = {
+            "vivek": ("विवेक",),
+            "rahul": ("राहुल",),
+            "priya": ("प्रिया",),
+            "amit": ("अमित",),
+            "anita": ("अनिता",),
+        }
+        for variant in devanagari_names.get(first, ()):
+            if variant in text:
+                return True
+        return False
 
     @staticmethod
     def _is_call_ending(text: str) -> bool:

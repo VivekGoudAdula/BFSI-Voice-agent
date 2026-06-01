@@ -4,7 +4,7 @@ import asyncio
 import base64
 import json
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any, Iterator
 
 # mulaw @ 8 kHz: 1 byte per sample
@@ -90,3 +90,37 @@ async def stream_mulaw_to_twilio(
         remaining = mulaw_duration_sec(bytes_sent) - (time.perf_counter() - playback_start)
         if remaining > 0:
             await asyncio.sleep(remaining)
+
+
+async def stream_mulaw_chunks_to_twilio(
+    websocket: Any,
+    stream_sid: str,
+    audio_chunks: AsyncIterator[bytes],
+    is_cancelled: Callable[[], bool],
+) -> None:
+    """
+    Play Sarvam (or other) mulaw chunks to Twilio as they arrive.
+
+    Time-to-first-audio is much lower than buffering the full utterance first.
+    """
+    if not stream_sid:
+        return
+
+    async for raw_chunk in audio_chunks:
+        if is_cancelled():
+            break
+        for frame in chunk_mulaw_audio(raw_chunk):
+            if is_cancelled():
+                break
+            payload = encode_mulaw_payload(frame)
+            await websocket.send_text(
+                json.dumps(
+                    {
+                        "event": "media",
+                        "streamSid": stream_sid,
+                        "media": {"payload": payload},
+                    },
+                    separators=(",", ":"),
+                )
+            )
+            await asyncio.sleep(mulaw_duration_sec(len(frame)))

@@ -197,3 +197,7 @@ class MongoDB:
     @classmethod
     def language_analytics(cls) -> Collection:
         return cls.get_db()["language_analytics"]
+
+    @classmethod
+    def conversation_quality_metrics(cls) -> Collection:
+        return cls.get_db()["conversation_quality_metrics"]

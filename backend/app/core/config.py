@@ -22,6 +22,17 @@ class Settings(BaseSettings):
     twilio_phone_number: str = ""
     twilio_sms_number: str = ""
 
+    # Text-to-speech (sarvam | elevenlabs)
+    tts_provider: str = "sarvam"
+
+    # Sarvam AI (Bulbul v3) — default until ElevenLabs Pro voices are available
+    sarvam_api_key: str = ""
+    sarvam_model: str = "bulbul:v3"
+    sarvam_speaker_default: str = "ashutosh"
+    sarvam_speaker_en: str = "ashutosh"
+    sarvam_speaker_hi: str = "ashutosh"
+    sarvam_pace: float = 1.1
+
     # ElevenLabs
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = ""
@@ -31,6 +42,8 @@ class Settings(BaseSettings):
     # Deepgram (streaming STT)
     deepgram_api_key: str = ""
     deepgram_model: str = "nova-2"
+    # Use "multi" for Hindi+English calls (nova-2); "hi" or "en" for single language
+    deepgram_language: str = "multi"
 
     # Groq (LLM)
     groq_api_key: str = ""
@@ -56,6 +69,10 @@ class Settings(BaseSettings):
 
     # Compliance & Audit (Phase 8)
     compliance_enabled: bool = True
+    # Shorter phone opener (disclosure + consent in one brief line)
+    compliance_brief_mode: bool = True
+    # Say "Hello" first, detect language from customer's reply, then continue in that language
+    compliance_language_first_flow: bool = True
     compliance_disclosure_template: str = (
         "Hello. I am an AI-powered virtual assistant calling on behalf of {bank_name}."
     )
@@ -80,6 +97,7 @@ class Settings(BaseSettings):
     base_url: str = "http://localhost:8000"
     audio_storage_path: str = "./storage/audio"
     log_level: str = "INFO"
+    seed_on_startup: bool = True
 
     @property
     def audio_dir(self) -> Path:

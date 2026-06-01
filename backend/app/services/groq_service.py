@@ -26,6 +26,7 @@ class GroqService:
         self._api_key = settings.groq_api_key
         self._model = settings.groq_model
         self._fallback_model = settings.groq_fallback_model.strip()
+        self._voice_max_tokens = settings.groq_voice_max_tokens
 
     async def generate_response(
         self,
@@ -99,7 +100,7 @@ class GroqService:
         payload_base: dict[str, Any] = {
             "model": self._model,
             "temperature": 0.3,
-            "max_tokens": 200,
+            "max_tokens": self._voice_max_tokens,
         }
         if tools and enable_tools:
             payload_base["tools"] = tools

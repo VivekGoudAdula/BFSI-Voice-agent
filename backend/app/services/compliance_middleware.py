@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Optional
 from app.core.logging_config import log_with_context
 from app.models.compliance import ConsentStatus
 from app.services.audit_service import AuditService
+from app.services.language_manager import INITIAL_HELLO
 
 if TYPE_CHECKING:
     from app.services.call_session_manager import ActiveCallSession
@@ -28,12 +29,34 @@ class ComplianceMiddleware:
     def enabled(self) -> bool:
         return self._audit.enabled
 
+    @property
+    def use_language_first_flow(self) -> bool:
+        return bool(self._audit.settings.compliance_language_first_flow)
+
+    async def run_initial_hello(
+        self,
+        session: "ActiveCallSession",
+        conversation_service: "ConversationService",
+    ) -> None:
+        """Say a short Hello and wait for the customer to speak (language detection)."""
+        session.awaiting_initial_language = True
+        session.awaiting_consent = False
+        session.messages[-1] = {"role": "assistant", "content": INITIAL_HELLO}
+        await conversation_service._speak(session, INITIAL_HELLO)
+        log_with_context(
+            logger,
+            logging.INFO,
+            "Initial hello played — awaiting customer language",
+            call_id=session.call_id,
+            event="initial_hello_played",
+        )
+
     async def run_pre_call_compliance(
         self,
         session: "ActiveCallSession",
         conversation_service: "ConversationService",
     ) -> None:
-        """Play disclosure + consent prompt at call start."""
+        """Play disclosure + consent prompt at call start (legacy flow)."""
         if not self.enabled:
             return
 
@@ -66,6 +89,31 @@ class ComplianceMiddleware:
             "Compliance disclosure and consent prompt played",
             call_id=session.call_id,
             event="compliance_disclosure_played",
+        )
+
+    def record_opening_consent(
+        self,
+        session: "ActiveCallSession",
+        *,
+        language: str,
+        customer_response: str,
+    ) -> None:
+        """Record implied consent after customer responds to Hello and hears the intro."""
+        session.awaiting_consent = False
+        session.consent_status = ConsentStatus.CONSENT_GRANTED.value
+        self._audit.on_consent_captured(
+            call_sid=session.call_sid,
+            call_id=session.call_id,
+            status=ConsentStatus.CONSENT_GRANTED,
+            raw_response=customer_response,
+        )
+        log_with_context(
+            logger,
+            logging.INFO,
+            "Opening consent recorded (language-first flow)",
+            call_id=session.call_id,
+            language=language,
+            event="compliance_consent_granted",
         )
 
     async def handle_consent_response(

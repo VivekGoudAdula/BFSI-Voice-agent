@@ -43,6 +43,10 @@ class AuditService:
     def enabled(self) -> bool:
         return self._settings.compliance_enabled
 
+    @property
+    def settings(self) -> Settings:
+        return self._settings
+
     def on_call_started(
         self,
         *,
@@ -179,6 +183,11 @@ class AuditService:
 
     def build_disclosure_text(self) -> str:
         bank = self._settings.bank_name
+        if self._settings.compliance_brief_mode:
+            return (
+                f"Hello, I am an AI assistant calling from {bank}. "
+                "This call may be recorded."
+            )
         notice = self._settings.compliance_recording_notice.strip()
         disclosure = self._settings.compliance_disclosure_template.format(
             bank_name=bank
@@ -188,6 +197,8 @@ class AuditService:
         return disclosure
 
     def build_consent_prompt(self) -> str:
+        if self._settings.compliance_brief_mode:
+            return "May I continue? Please say yes or no."
         return self._settings.compliance_consent_prompt
 
     def on_user_message(

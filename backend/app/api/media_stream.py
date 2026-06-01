@@ -72,24 +72,72 @@ async def media_stream_handler(websocket: WebSocket) -> None:
                 if not session:
                     break
 
+                conversation_service.preload_emi_for_session(session)
+
                 stt = SpeechRecognitionService(settings)
+                session.stt = stt
+                from app.services.language_manager import LanguageManager
+
+                stt_language = settings.deepgram_language
+                if session.agent_config:
+                    supported = getattr(
+                        session.agent_config, "supported_languages", None
+                    ) or ["en", "hi"]
+                    if "hi" in supported and "en" in supported:
+                        if LanguageManager.is_india_phone(session.customer_phone):
+                            # Hindi-first STT for +91 — better Devanagari on first reply
+                            stt_language = "hi"
+                        else:
+                            stt_language = "multi"
 
                 async def on_final(transcript: str, stt_ms: float) -> None:
-                    if session:
-                        await conversation_service.handle_user_transcript(
-                            session, transcript, stt_ms
-                        )
+                    if not session:
+                        return
+                    text = transcript.strip()
+                    if len(text) < 2:
+                        return
+
+                    # Preempt in-flight turn (TTS playback, Groq, etc.) — do not drop speech
+                    prior = session.processing_task
+                    if prior and not prior.done():
+                        prior.cancel()
+                        try:
+                            await prior
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception as exc:
+                            logger.debug(
+                                "Prior turn ended with error after cancel: %s", exc
+                            )
+                    session.is_processing = False
+                    session.playback_cancelled = False
+
+                    async def _run_turn() -> None:
+                        try:
+                            await conversation_service.handle_user_transcript(
+                                session, text, stt_ms
+                            )
+                        finally:
+                            if session.processing_task is asyncio.current_task():
+                                session.processing_task = None
+
+                    session.processing_task = asyncio.create_task(_run_turn())
 
                 async def on_speech_started() -> None:
                     if session:
                         await conversation_service.handle_speech_started(session)
 
+                # Start speaking immediately; connect STT in parallel (saves ~2–3s)
+                greeting_task = asyncio.create_task(
+                    conversation_service.play_greeting(session)
+                )
                 await stt.connect(
                     on_final_transcript=on_final,
                     on_speech_started=on_speech_started,
+                    language=stt_language,
                 )
-
-                asyncio.create_task(conversation_service.play_greeting(session))
+                if greeting_task.done() and greeting_task.exception():
+                    greeting_task.result()
 
             elif event == "media" and stt and session:
                 track = message.get("media", {}).get("track", "inbound")
@@ -174,6 +222,7 @@ async def _handle_start(
 
     customer_id = context["customer_id"]
     customer_name = context["customer_name"]
+    customer_phone = call.get("phone", "") if call else ""
     agent_id = context.get("agent_id", "")
     agent_config = context.get("agent_config")
     agent_context = context.get("agent_context", {})
@@ -206,6 +255,7 @@ async def _handle_start(
         stream_sid=stream_sid,
         customer_id=customer_id,
         customer_name=customer_name,
+        customer_phone=customer_phone,
         agent_id=agent_id,
         agent_config=agent_config,
         greeting=greeting,
