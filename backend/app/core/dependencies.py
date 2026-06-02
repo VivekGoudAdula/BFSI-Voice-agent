@@ -31,6 +31,7 @@ from app.services.conversation_service import ConversationService
 from app.services.language_analytics_service import LanguageAnalyticsService
 from app.services.language_detection_service import LanguageDetectionService
 from app.services.language_manager import LanguageManager
+from app.services.latency_log_service import LatencyLogService
 from app.services.crm_data_service import CRMDataService
 from app.services.admin_service import AdminService
 from app.services.customer_service import CustomerService
@@ -276,6 +277,11 @@ def get_handoff_service() -> HandoffService:
 
 
 @lru_cache
+def get_latency_log_service() -> LatencyLogService:
+    return LatencyLogService()
+
+
+@lru_cache
 def get_tool_execution_service() -> ToolExecutionService:
     return ToolExecutionService(
         registry=get_tool_registry(),
@@ -340,6 +346,7 @@ def get_conversation_service() -> ConversationService:
         session_manager=get_call_session_manager(),
         groq_service=get_groq_service(),
         tts_service=get_tts_service(),
+        latency_log_service=get_latency_log_service(),
         agent_config_service=get_agent_config_service(),
         agent_manager=get_agent_manager(),
         agent_analytics_service=get_agent_analytics_service(),

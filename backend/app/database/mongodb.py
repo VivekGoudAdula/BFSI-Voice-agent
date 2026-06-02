@@ -24,10 +24,27 @@ class MongoDB:
         """Establish connection to MongoDB."""
         settings = settings or get_settings()
         try:
-            cls.client = MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
-            cls.client.admin.command("ping")
+            # Create the client/db eagerly. Many MongoDB operations are lazy and can
+            # still work even if a primary isn't available yet (e.g. CosmosDB).
+            cls.client = MongoClient(
+                settings.mongodb_uri,
+                serverSelectionTimeoutMS=5000,
+            )
             cls.db = cls.client[settings.database_name]
-            logger.info("Connected to MongoDB database=%s", settings.database_name)
+
+            try:
+                cls.client.admin.command("ping")
+                logger.info(
+                    "Connected to MongoDB database=%s",
+                    settings.database_name,
+                )
+            except Exception as ping_exc:
+                # Don't prevent the app from starting; latency logging and the
+                # rest of the pipeline can still run with console logs.
+                logger.warning(
+                    "MongoDB ping failed (continuing without startup abort): %s",
+                    ping_exc,
+                )
         except Exception as exc:
             logger.error("MongoDB connection failed: %s", exc)
             raise DatabaseError(f"Unable to connect to MongoDB: {exc}") from exc
@@ -201,3 +218,7 @@ class MongoDB:
     @classmethod
     def conversation_quality_metrics(cls) -> Collection:
         return cls.get_db()["conversation_quality_metrics"]
+
+    @classmethod
+    def latency_logs(cls) -> Collection:
+        return cls.get_db()["latency_logs"]

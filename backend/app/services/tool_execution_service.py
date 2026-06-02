@@ -3,10 +3,14 @@
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from app.services.latency_tracker import LatencyTracker
 
 from pymongo.errors import PyMongoError
 
+from app.core.logging_config import log_with_context
 from app.database.mongodb import MongoDB
 from app.models.tool import ToolExecutionLogResponse
 from app.tools.base import ToolContext, ToolResult
@@ -34,9 +38,33 @@ class ToolExecutionService:
         Returns:
             Tuple of (ToolResult, execution_time_ms).
         """
+        tracker: Optional["LatencyTracker"] = None
+        if context.extra:
+            tracker = context.extra.get("latency_tracker")
+
+        if tracker:
+            log_with_context(
+                logger,
+                logging.DEBUG,
+                f"TOOL_START tool={tool_name}",
+                trace_id=tracker.trace_id,
+                event="TOOL_START",
+            )
+
         start = time.perf_counter()
         result = await self._registry.execute(tool_name, arguments, context)
         elapsed_ms = (time.perf_counter() - start) * 1000
+
+        if tracker:
+            tracker.record_tool_execution(elapsed_ms)
+            log_with_context(
+                logger,
+                logging.DEBUG,
+                f"TOOL_END tool={tool_name} ms={elapsed_ms:.1f}",
+                trace_id=tracker.trace_id,
+                event="TOOL_END",
+                tool_execution_ms=round(elapsed_ms, 1),
+            )
 
         self._log_execution(
             call_id=context.call_id,

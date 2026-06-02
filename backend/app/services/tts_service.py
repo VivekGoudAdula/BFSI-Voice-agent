@@ -1,5 +1,6 @@
 """TTS provider selection (Sarvam or ElevenLabs)."""
 
+from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
 from app.core.config import Settings, get_settings
@@ -15,6 +16,16 @@ class TextToSpeechProvider(Protocol):
         voice_id: str | None = None,
         language_code: str = "en",
     ) -> bytes: ...
+
+
+@runtime_checkable
+class StreamingTTSInterface(Protocol):
+    async def stream_response_audio(
+        self,
+        text: str,
+        voice_id: str | None = None,
+        language_code: str = "en",
+    ) -> AsyncIterator[bytes]: ...
 
 
 class TextToSpeechService:
@@ -41,3 +52,23 @@ class TextToSpeechService:
             voice_id=voice_id,
             language_code=language_code,
         )
+
+    async def stream_response_audio(
+        self,
+        text: str,
+        voice_id: str | None = None,
+        language_code: str = "en",
+    ) -> AsyncIterator[bytes]:
+        """
+        Streaming-compatible wrapper.
+
+        Current business logic still uses buffered TTS; this exists so a future
+        streaming provider can plug in without changing conversation flow.
+        """
+        audio_bytes = await self.generate_response_audio(
+            text,
+            voice_id=voice_id,
+            language_code=language_code,
+        )
+        # Yield once as a single chunk for now.
+        yield audio_bytes

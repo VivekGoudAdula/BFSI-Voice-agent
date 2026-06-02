@@ -111,6 +111,10 @@ async def media_stream_handler(websocket: WebSocket) -> None:
                             )
                     session.is_processing = False
                     session.playback_cancelled = False
+                    if session.pending_latency_tracker:
+                        session.current_latency_tracker = session.pending_latency_tracker
+                        stt.set_latency_tracker(session.current_latency_tracker)
+                        session.current_latency_tracker.mark("TRANSCRIPT_RECEIVED")
 
                     async def _run_turn() -> None:
                         try:
@@ -125,6 +129,7 @@ async def media_stream_handler(websocket: WebSocket) -> None:
 
                 async def on_speech_started() -> None:
                     if session:
+                        conversation_service.begin_pending_latency_tracker(session)
                         await conversation_service.handle_speech_started(session)
 
                 # Start speaking immediately; connect STT in parallel (saves ~2–3s)
@@ -145,6 +150,8 @@ async def media_stream_handler(websocket: WebSocket) -> None:
                     continue
                 payload = message.get("media", {}).get("payload", "")
                 if payload:
+                    if session.pending_latency_tracker:
+                        session.pending_latency_tracker.mark("TWILIO_AUDIO_RECEIVED")
                     audio = decode_twilio_payload(payload)
                     await stt.send_audio(audio)
 

@@ -3,7 +3,10 @@
 import json
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from app.services.latency_tracker import LatencyTracker
 
 import httpx
 
@@ -56,7 +59,8 @@ class GroqService:
         forced_tool: str | None = None,
         forced_tool_args: dict[str, Any] | None = None,
         enable_tools: bool = True,
-    ) -> tuple[str, float, list[str]]:
+        latency_tracker: Optional["LatencyTracker"] = None,
+    ) -> tuple[str, float, list[str], dict[str, int]]:
         """
         Generate a response using Groq tool calling.
 
@@ -64,12 +68,15 @@ class GroqService:
         and returns the final customer-facing response.
 
         Returns:
-            Tuple of (response_text, total_latency_ms, tools_used).
+            Tuple of (response_text, total_latency_ms, tools_used, token_usage).
         """
         full_system = system_prompt
         api_messages = self._build_messages(full_system, messages)
         tools_used: list[str] = []
         total_latency = 0.0
+        prompt_tokens_total = 0
+        completion_tokens_total = 0
+        total_tokens_total = 0
 
         # Handle pre-triggered tool (e.g. escalation → transfer_to_human)
         if forced_tool:
@@ -99,21 +106,33 @@ class GroqService:
         tool_choice: Any = "auto" if tools and enable_tools else None
         payload_base: dict[str, Any] = {
             "model": self._model,
-            "temperature": 0.3,
+            "temperature": 0.2,
             "max_tokens": self._voice_max_tokens,
         }
         if tools and enable_tools:
             payload_base["tools"] = tools
             payload_base["tool_choice"] = tool_choice
 
+        if latency_tracker:
+            latency_tracker.mark("LLM_REQUEST_START")
+
         for iteration in range(MAX_TOOL_ITERATIONS):
             payload = {**payload_base, "messages": api_messages}
             data, latency_ms = await self._call_api(payload)
             total_latency += latency_ms
 
+            usage = data.get("usage") or {}
+            prompt_tokens_total += int(usage.get("prompt_tokens") or 0)
+            completion_tokens_total += int(usage.get("completion_tokens") or 0)
+            total_tokens_total += int(usage.get("total_tokens") or 0)
+
             choice = data["choices"][0]
             message = choice["message"]
             tool_calls = message.get("tool_calls")
+
+            content = (message.get("content") or "").strip()
+            if content and latency_tracker and "LLM_FIRST_TOKEN" not in latency_tracker._marks:
+                latency_tracker.mark("LLM_FIRST_TOKEN")
 
             if tool_calls:
                 api_messages.append(message)
@@ -139,8 +158,9 @@ class GroqService:
                     })
                 continue
 
-            content = (message.get("content") or "").strip()
             if content:
+                if latency_tracker:
+                    latency_tracker.mark("LLM_COMPLETE")
                 log_with_context(
                     logger,
                     logging.INFO,
@@ -149,13 +169,27 @@ class GroqService:
                     tools_used=tools_used,
                     event="groq_tool_response",
                 )
-                return content, total_latency, tools_used
+                return (
+                    content,
+                    total_latency,
+                    tools_used,
+                    {
+                        "prompt_tokens": prompt_tokens_total,
+                        "response_tokens": completion_tokens_total,
+                        "total_tokens": total_tokens_total,
+                    },
+                )
 
         return (
             "I apologize, I was unable to complete that request. "
             "Let me connect you with a banking representative.",
             total_latency,
             tools_used,
+            {
+                "prompt_tokens": prompt_tokens_total,
+                "response_tokens": completion_tokens_total,
+                "total_tokens": total_tokens_total,
+            },
         )
 
     def _build_messages(

@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import admin, agents, calls, campaigns, compliance, crm, customers, elevenlabs, handoff, media_stream, sms, tools, webhooks
+from app.api import admin, agents, calls, campaigns, compliance, crm, customers, elevenlabs, handoff, latency, media_stream, sms, tools, webhooks
 from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.logging_config import setup_logging
@@ -68,6 +68,7 @@ app.include_router(compliance.router)
 app.include_router(sms.router)
 app.include_router(elevenlabs.router)
 app.include_router(webhooks.router)
+app.include_router(latency.router)
 app.include_router(media_stream.router)
 
 

@@ -45,6 +45,8 @@ async def stream_mulaw_to_twilio(
     stream_sid: str,
     audio: bytes,
     is_cancelled: Callable[[], bool],
+    on_playback_start: Callable[[], None] | None = None,
+    on_playback_end: Callable[[], None] | None = None,
 ) -> None:
     """
     Stream mulaw audio to Twilio at real-time pace with a small lead buffer.
@@ -57,6 +59,7 @@ async def stream_mulaw_to_twilio(
 
     playback_start = time.perf_counter()
     bytes_sent = 0
+    playback_started = False
 
     for chunk in chunk_mulaw_audio(audio):
         if is_cancelled():
@@ -72,6 +75,11 @@ async def stream_mulaw_to_twilio(
 
         if is_cancelled():
             break
+
+        if not playback_started:
+            playback_started = True
+            if on_playback_start:
+                on_playback_start()
 
         payload = encode_mulaw_payload(chunk)
         await websocket.send_text(
@@ -90,6 +98,9 @@ async def stream_mulaw_to_twilio(
         remaining = mulaw_duration_sec(bytes_sent) - (time.perf_counter() - playback_start)
         if remaining > 0:
             await asyncio.sleep(remaining)
+
+    if not is_cancelled() and on_playback_end:
+        on_playback_end()
 
 
 async def stream_mulaw_chunks_to_twilio(

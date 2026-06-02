@@ -24,7 +24,8 @@ HALLUCINATION_PATTERNS: list[str] = [
     r"\b(your loan amount is|your account balance is)\s*(rs\.?\s*)?\d",
 ]
 
-MAX_SENTENCES = 4
+MAX_SENTENCES = 1
+MAX_WORDS = 15
 MAX_CHARS = 350
 
 
@@ -49,9 +50,14 @@ class ResponseValidator:
         if len(text) > MAX_CHARS:
             violations.append("response_too_long")
 
-        sentence_count = len(re.split(r"[.!?]+", text))
+        sentence_parts = [s for s in re.split(r"[.!?।]+", text) if s.strip()]
+        sentence_count = len(sentence_parts)
         if sentence_count > MAX_SENTENCES:
             violations.append("too_many_sentences")
+
+        word_count = len(text.split())
+        if word_count > MAX_WORDS:
+            violations.append("too_many_words")
 
         lower = text.lower()
         for pattern in FORBIDDEN_PHRASES:
@@ -79,8 +85,8 @@ class ResponseValidator:
             "Your previous response was rejected. Regenerate following these fixes:",
         ]
         for v in violations:
-            if v == "response_too_long" or v == "too_many_sentences":
-                hints.append("- Keep response to 2-3 short sentences maximum.")
+            if v in {"response_too_long", "too_many_sentences", "too_many_words"}:
+                hints.append("- Keep response to max 15 words and exactly 1 sentence.")
             elif v.startswith("forbidden_phrase"):
                 hints.append("- Remove any promises, legal advice, or internal policy references.")
             elif v.startswith("potential_hallucination"):

@@ -30,6 +30,8 @@ from app.services.voice_activity_service import VoiceActivityService
 from app.services.sentiment_aware_response_engine import SentimentAwareResponseEngine
 from app.services.conversation_quality_service import ConversationQualityService
 from app.services.banking_service import BankingService
+from app.services.latency_log_service import LatencyLogService
+from app.services.latency_tracker import LatencyTracker, create_tracker
 from app.tools.base import ToolContext
 from app.tools.registry import ToolRegistry
 from app.utils.audio import stream_mulaw_to_twilio
@@ -60,6 +62,7 @@ class ConversationService:
         behavior_engine: ConversationBehaviorEngine | None = None,
         sentiment_aware_engine: SentimentAwareResponseEngine | None = None,
         conversation_quality_service: ConversationQualityService | None = None,
+        latency_log_service: LatencyLogService | None = None,
     ) -> None:
         self._session_manager = session_manager
         self._groq = groq_service
@@ -81,6 +84,7 @@ class ConversationService:
         self._sentiment_aware = sentiment_aware_engine or SentimentAwareResponseEngine()
         self._quality = conversation_quality_service or ConversationQualityService()
         self._banking = BankingService()
+        self._latency_logs = latency_log_service or LatencyLogService()
 
     def preload_emi_for_session(self, session: ActiveCallSession) -> None:
         """Load EMI details from banking service into session context (no user input needed)."""
@@ -235,6 +239,9 @@ class ConversationService:
         session.is_processing = True
         self._turns.set_processing(session)
         turn_start = time.perf_counter()
+        tracker = self._resolve_turn_tracker(session)
+        if tracker:
+            tracker.mark("TURN_START")
 
         try:
             if session.is_ai_speaking:
@@ -242,6 +249,37 @@ class ConversationService:
 
             if session.awaiting_initial_language:
                 await self._handle_initial_language_turn(session, text)
+                await self._finalize_turn_latency(session, tracker)
+                response_text = session.messages[-1]["content"] if session.messages else ""
+                response_word_count = len(response_text.split())
+                response_character_count = len(response_text)
+                total_ms = (time.perf_counter() - turn_start) * 1000
+                tts_generation_ms = (
+                    round(tracker.compute_metrics().get("tts_total_ms", 0.0), 1)
+                    if tracker
+                    else 0.0
+                )
+                log_with_context(
+                    logger,
+                    logging.INFO,
+                    "Conversation turn completed",
+                    call_id=session.call_id,
+                    state=session.current_state.value,
+                    tools_used=[],
+                    stt_ms=round(stt_latency_ms, 1),
+                    groq_ms=0,
+                    tts_ms=tts_generation_ms,
+                    prompt_tokens=0,
+                    history_tokens=0,
+                    response_tokens=0,
+                    response_length_words=response_word_count,
+                    word_count=response_word_count,
+                    character_count=response_character_count,
+                    tts_generation_ms=tts_generation_ms,
+                    tts_provider=self._tts.provider_name,
+                    total_ms=round(total_ms, 1),
+                    event="turn_completed",
+                )
                 return
 
             if self._compliance and session.awaiting_consent:
@@ -251,6 +289,37 @@ class ConversationService:
                 if not continue_call:
                     if session.consent_denied:
                         session.handoff_initiated = True
+                    await self._finalize_turn_latency(session, tracker)
+                    response_text = ""
+                    response_word_count = 0
+                    response_character_count = 0
+                    total_ms = (time.perf_counter() - turn_start) * 1000
+                    tts_generation_ms = (
+                        round(tracker.compute_metrics().get("tts_total_ms", 0.0), 1)
+                        if tracker
+                        else 0.0
+                    )
+                    log_with_context(
+                        logger,
+                        logging.INFO,
+                        "Conversation turn completed",
+                        call_id=session.call_id,
+                        state=session.current_state.value,
+                        tools_used=[],
+                        stt_ms=round(stt_latency_ms, 1),
+                        groq_ms=0,
+                        tts_ms=tts_generation_ms,
+                        prompt_tokens=0,
+                        history_tokens=0,
+                        response_tokens=0,
+                        response_length_words=response_word_count,
+                        word_count=response_word_count,
+                        character_count=response_character_count,
+                        tts_generation_ms=tts_generation_ms,
+                        tts_provider=self._tts.provider_name,
+                        total_ms=round(total_ms, 1),
+                        event="turn_completed",
+                    )
                     return
 
             self._session_manager.add_user_message(session, text)
@@ -285,14 +354,18 @@ class ConversationService:
                 await self._speak(session, switch_ack)
                 if detection.switch_requested and len(text.split()) <= 12:
                     self._session_manager.update_conversation_state(session)
+                    await self._finalize_turn_latency(session, tracker)
                     return
 
             if session.skip_next_agent_turn:
                 session.skip_next_agent_turn = False
+                await self._finalize_turn_latency(session, tracker)
                 return
 
             agent_config = self._get_agent_config(session)
             turn_context = self._build_turn_context(session)
+            if tracker:
+                tracker.mark("TRANSCRIPT_PROCESSED")
             was_identity_verified = session.identity_verified
             turn_result = self._engine.process_user_turn(agent_config, turn_context, text)
 
@@ -318,8 +391,15 @@ class ConversationService:
             updated = turn_result["updated_context"]
             session.sentiment_history = list(updated.sentiment_history)
 
+            token_metrics: dict[str, int] = {
+                "prompt_tokens": 0,
+                "history_tokens": 0,
+                "history_size_messages": 0,
+                "response_tokens": 0,
+                "total_tokens": 0,
+            }
             try:
-                response_text, tools_used = await self._generate_response(
+                response_text, tools_used, token_metrics = await self._generate_response(
                     session,
                     agent_config,
                     turn_result,
@@ -332,7 +412,7 @@ class ConversationService:
                     call_id=session.call_id,
                     event="response_generation_failed",
                 )
-                response_text, tools_used = await self._recover_from_llm_failure(
+                response_text, tools_used, token_metrics = await self._recover_from_llm_failure(
                     session,
                     agent_config,
                     identity_just_confirmed=identity_just_confirmed,
@@ -346,6 +426,8 @@ class ConversationService:
                 session.active_language,
                 sentiment=detected_sentiment,
             )
+            if tracker:
+                tracker.mark("ASSISTANT_RESPONSE_CREATED")
             session.tools_used.extend(tools_used)
 
             self._session_manager.add_assistant_message(session, response_text)
@@ -365,13 +447,37 @@ class ConversationService:
             await asyncio.sleep(delay_ms / 1000)
             session.response_latency_ms_sum += delay_ms
             session.response_latency_count += 1
-            tts_start = time.perf_counter()
-            await self._speak(session, response_text)
-            tts_ms = (time.perf_counter() - tts_start) * 1000
+            await self._speak(session, response_text, latency_tracker=tracker)
+            tts_ms = 0.0
+            if tracker:
+                m = tracker.compute_metrics()
+                tts_ms = m.get("tts_total_ms", 0.0)
 
             total_ms = (time.perf_counter() - turn_start) * 1000
+            await self._finalize_turn_latency(session, tracker)
             session.turn_count += 1
             session.total_turn_duration_ms += total_ms
+
+            response_word_count = len(response_text.split())
+            response_character_count = len(response_text)
+            session.assistant_word_total += response_word_count
+            session.assistant_char_total += response_character_count
+            assistant_turns = max(session.turn_count, 0) + 1
+            avg_word_count = session.assistant_word_total / assistant_turns
+            avg_character_count = session.assistant_char_total / assistant_turns
+
+            if tracker:
+                tracker.set_diagnostics(
+                    prompt_tokens=token_metrics.get("prompt_tokens", 0),
+                    history_tokens=token_metrics.get("history_tokens", 0),
+                    response_tokens=token_metrics.get("response_tokens", 0),
+                    history_size_messages=token_metrics.get("history_size_messages", 0),
+                    word_count=response_word_count,
+                    character_count=response_character_count,
+                    avg_word_count=round(avg_word_count, 1),
+                    avg_character_count=round(avg_character_count, 1),
+                    conversation_history_size=token_metrics.get("history_size_messages", 0),
+                )
 
             log_with_context(
                 logger,
@@ -383,6 +489,16 @@ class ConversationService:
                 stt_ms=round(stt_latency_ms, 1),
                 groq_ms=round(getattr(session, "_last_groq_ms", 0), 1),
                 tts_ms=round(tts_ms, 1),
+                prompt_tokens=token_metrics.get("prompt_tokens", 0),
+                history_tokens=token_metrics.get("history_tokens", 0),
+                response_tokens=token_metrics.get("response_tokens", 0),
+                conversation_history_size=token_metrics.get("history_size_messages", 0),
+                response_length_words=response_word_count,
+                word_count=response_word_count,
+                character_count=response_character_count,
+                avg_word_count=round(avg_word_count, 1),
+                avg_character_count=round(avg_character_count, 1),
+                tts_generation_ms=round(tts_ms, 1),
                 tts_provider=self._tts.provider_name,
                 total_ms=round(total_ms, 1),
                 event="turn_completed",
@@ -410,30 +526,83 @@ class ConversationService:
                     self._engine.get_api_failure_response(
                         customer_name=session.customer_name,
                     ),
+                    latency_tracker=tracker,
                 )
             except Exception:
                 pass
+            await self._finalize_turn_latency(session, tracker)
         finally:
             session.is_processing = False
+            session.current_latency_tracker = None
+            session.pending_latency_tracker = None
             if not session.is_ai_speaking:
                 self._turns.set_customer_turn(session)
+
+    @staticmethod
+    def _resolve_turn_tracker(session: ActiveCallSession) -> LatencyTracker | None:
+        tracker = session.current_latency_tracker or session.pending_latency_tracker
+        if tracker:
+            session.current_latency_tracker = tracker
+            stt = getattr(session, "stt", None)
+            if stt is not None:
+                stt.set_latency_tracker(tracker)
+        return tracker
+
+    async def _finalize_turn_latency(
+        self,
+        session: ActiveCallSession,
+        tracker: LatencyTracker | None,
+    ) -> None:
+        if not tracker or tracker._finalized:
+            return
+        tracker.log_breakdown()
+        self._latency_logs.save(tracker.to_mongo_document())
+        session.current_latency_tracker = None
+        session.pending_latency_tracker = None
+        stt = getattr(session, "stt", None)
+        if stt is not None:
+            stt.set_latency_tracker(None)
+
+    def begin_pending_latency_tracker(self, session: ActiveCallSession) -> None:
+        """Start profiling when customer begins speaking (Deepgram SpeechStarted)."""
+        if session.pending_latency_tracker or session.current_latency_tracker:
+            return
+        tracker = create_tracker(session.call_sid, session.call_id)
+        session.pending_latency_tracker = tracker
+        stt = getattr(session, "stt", None)
+        if stt is not None:
+            stt.set_latency_tracker(tracker)
 
     async def _generate_response(
         self,
         session: ActiveCallSession,
         agent_config: AgentConfig,
         turn_result: dict,
-    ) -> tuple[str, list[str]]:
+    ) -> tuple[str, list[str], dict[str, int]]:
         """Generate response via Groq tool calling pipeline with validation."""
         if turn_result.get("use_objection_response"):
-            return turn_result["objection_response"], []
+            return (
+                turn_result["objection_response"],
+                [],
+                {
+                    "prompt_tokens": 0,
+                    "history_tokens": 0,
+                    "response_tokens": 0,
+                    "total_tokens": 0,
+                },
+            )
 
         turn_context = turn_result["updated_context"]
         turn_context.agent_context = dict(session.agent_context)
         system_prompt = self._engine.build_system_prompt(agent_config, turn_context)
-        groq_messages = [
+        history_messages = [
             m for m in session.messages if m["role"] in ("user", "assistant")
         ]
+        # Rolling memory: keep last 5 turns (10 messages) for token/latency control.
+        groq_messages = history_messages[-10:]
+        history_text = "\n".join(m.get("content", "") for m in groq_messages)
+        history_tokens_est = max(0, int(len(history_text) / 4))
+        history_size_messages = len(groq_messages)
         tools = self._tool_registry.get_openai_schemas(agent_config.tools or None)
         tool_context = ToolContext(
             customer_id=session.customer_id,
@@ -452,6 +621,7 @@ class ConversationService:
                 "agent_purpose": agent_config.purpose,
                 "payment_link_sent": session.payment_link_sent,
                 "payment_link_result": dict(session.payment_link_result),
+                "latency_tracker": session.current_latency_tracker,
             },
         )
 
@@ -469,9 +639,17 @@ class ConversationService:
 
         regeneration_hint = ""
         tools_used: list[str] = []
+        prompt_tokens_total = 0
+        completion_tokens_total = 0
+        total_tokens_total = 0
 
         for attempt in range(MAX_REGENERATION_ATTEMPTS + 1):
-            response_text, groq_ms, tools_used = await self._groq.generate_with_tools(
+            (
+                response_text,
+                groq_ms,
+                tools_used,
+                token_usage,
+            ) = await self._groq.generate_with_tools(
                 groq_messages,
                 system_prompt + (f"\n\n{regeneration_hint}" if regeneration_hint else ""),
                 tools,
@@ -480,9 +658,13 @@ class ConversationService:
                 forced_tool=forced_tool if attempt == 0 else None,
                 forced_tool_args=forced_args if attempt == 0 else None,
                 enable_tools=(attempt == 0),
+                latency_tracker=session.current_latency_tracker,
             )
             session._last_groq_ms = groq_ms
             forced_tool = None  # only force on first attempt
+            prompt_tokens_total += int(token_usage.get("prompt_tokens", 0))
+            completion_tokens_total += int(token_usage.get("response_tokens", 0))
+            total_tokens_total += int(token_usage.get("total_tokens", 0))
 
             turn_context.tools_used = tools_used
             validation = self._engine.validate_response(
@@ -501,7 +683,17 @@ class ConversationService:
                     session.payment_link_result = dict(
                         tool_context.extra.get("payment_link_result") or {}
                     )
-                return response_text, tools_used
+                return (
+                    response_text,
+                    tools_used,
+                    {
+                        "prompt_tokens": prompt_tokens_total,
+                        "history_tokens": history_tokens_est,
+                        "history_size_messages": history_size_messages,
+                        "response_tokens": completion_tokens_total,
+                        "total_tokens": total_tokens_total,
+                    },
+                )
 
             log_with_context(
                 logger,
@@ -517,7 +709,17 @@ class ConversationService:
             session.payment_link_result = dict(
                 tool_context.extra.get("payment_link_result") or {}
             )
-        return self._engine.get_fallback_response(agent_config), tools_used
+        return (
+            self._engine.get_fallback_response(agent_config),
+            tools_used,
+            {
+                "prompt_tokens": prompt_tokens_total,
+                "history_tokens": history_tokens_est,
+                "history_size_messages": history_size_messages,
+                "response_tokens": completion_tokens_total,
+                "total_tokens": total_tokens_total,
+            },
+        )
 
     async def _recover_from_llm_failure(
         self,
@@ -525,7 +727,7 @@ class ConversationService:
         agent_config: AgentConfig,
         *,
         identity_just_confirmed: bool = False,
-    ) -> tuple[str, list[str]]:
+    ) -> tuple[str, list[str], dict[str, int]]:
         """
         Produce a sensible spoken response when Groq is unavailable.
 
@@ -561,6 +763,13 @@ class ConversationService:
                             language=session.active_language or "en",
                         ),
                         ["check_emi_due"],
+                        {
+                            "prompt_tokens": 0,
+                            "history_tokens": 0,
+                            "history_size_messages": 0,
+                            "response_tokens": 0,
+                            "total_tokens": 0,
+                        },
                     )
             except Exception as exc:
                 logger.warning("EMI recovery tool failed: %s", exc)
@@ -571,6 +780,13 @@ class ConversationService:
                 identity_just_confirmed=identity_just_confirmed,
             ),
             [],
+            {
+                "prompt_tokens": 0,
+                "history_tokens": 0,
+                "history_size_messages": 0,
+                "response_tokens": 0,
+                "total_tokens": 0,
+            },
         )
 
     def _get_agent_doc(self, session: ActiveCallSession) -> dict:
@@ -635,13 +851,24 @@ class ConversationService:
         except Exception as exc:
             logger.warning("Failed to send clear event: %s", exc)
 
-    async def _speak(self, session: ActiveCallSession, text: str) -> None:
+    async def _speak(
+        self,
+        session: ActiveCallSession,
+        text: str,
+        *,
+        latency_tracker: LatencyTracker | None = None,
+    ) -> None:
         """Generate TTS and stream mulaw audio to Twilio."""
         if not session.websocket:
             return
         session.playback_cancelled = False
         session.is_ai_speaking = True
         self._turns.set_ai_turn(session)
+
+        tracker = latency_tracker or session.current_latency_tracker
+        if tracker:
+            tracker.mark("TTS_START")
+            tracker.mark("TTS_REQUEST_START")
 
         agent_config = self._get_agent_config(session)
         voice_id = agent_config.voice or None
@@ -652,12 +879,16 @@ class ConversationService:
             language_code=language_code,
         )
 
+        if tracker:
+            tracker.mark("TTS_FIRST_AUDIO_BYTE")
+            tracker.mark("TTS_COMPLETE")
+
         if session.playback_cancelled:
             session.is_ai_speaking = False
             return
 
         session.playback_task = asyncio.create_task(
-            self._stream_audio_to_twilio(session, audio_bytes)
+            self._stream_audio_to_twilio(session, audio_bytes, latency_tracker=tracker)
         )
         try:
             await session.playback_task
@@ -672,15 +903,29 @@ class ConversationService:
         self,
         session: ActiveCallSession,
         audio_bytes: bytes,
+        *,
+        latency_tracker: LatencyTracker | None = None,
     ) -> None:
         if not session.websocket:
             return
+
+        def on_playback_start() -> None:
+            if latency_tracker:
+                latency_tracker.mark("AUDIO_PLAYBACK_START")
+                # First audio chunk actually sent to Twilio playback.
+                latency_tracker.mark("TTS_FIRST_AUDIO_CHUNK")
+
+        def on_playback_end() -> None:
+            if latency_tracker:
+                latency_tracker.mark("AUDIO_PLAYBACK_END")
 
         await stream_mulaw_to_twilio(
             websocket=session.websocket,
             stream_sid=session.stream_sid,
             audio=audio_bytes,
             is_cancelled=lambda: session.playback_cancelled,
+            on_playback_start=on_playback_start,
+            on_playback_end=on_playback_end,
         )
 
         if not session.playback_cancelled:

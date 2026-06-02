@@ -4,7 +4,10 @@ import asyncio
 import json
 import logging
 import time
-from typing import Awaitable, Callable, Optional
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional
+
+if TYPE_CHECKING:
+    from app.services.latency_tracker import LatencyTracker
 from urllib.parse import urlencode
 
 import websockets
@@ -49,6 +52,7 @@ class SpeechRecognitionService:
         self._last_final_at: float = 0.0
         self._utterance_start: float = 0.0
         self._connect_lock = asyncio.Lock()
+        self._latency_tracker: Optional["LatencyTracker"] = None
 
     @staticmethod
     def _normalize_language(code: str) -> str:
@@ -73,6 +77,10 @@ class SpeechRecognitionService:
             "smart_format": "true",
         }
         return f"{self.DEEPGRAM_WS_BASE}?{urlencode(params)}"
+
+    def set_latency_tracker(self, tracker: Optional["LatencyTracker"]) -> None:
+        """Attach per-turn latency tracker for STT stage marks."""
+        self._latency_tracker = tracker
 
     async def connect(
         self,
@@ -213,6 +221,10 @@ class SpeechRecognitionService:
             self._utterance_start = time.perf_counter()
             if self._on_speech_started:
                 await self._on_speech_started()
+            if self._latency_tracker:
+                # Mark after the callback so per-turn trackers can be attached
+                # during the SpeechStarted handler.
+                self._latency_tracker.mark("STT_START")
             return
 
         if msg_type != "Results":
@@ -229,6 +241,8 @@ class SpeechRecognitionService:
 
         is_final = message.get("is_final", False)
         if not is_final:
+            if self._latency_tracker:
+                self._latency_tracker.mark_stt_first_partial()
             return
 
         # Deduplicate rapid duplicate finals
@@ -238,6 +252,10 @@ class SpeechRecognitionService:
         self._last_final_at = now
 
         stt_latency_ms = (now - self._utterance_start) * 1000 if self._utterance_start else 0.0
+
+        if self._latency_tracker:
+            self._latency_tracker.mark("STT_FINAL_TRANSCRIPT")
+            self._latency_tracker.mark("STT_END")
 
         if self._language == "hi":
             log_line = f"अंतिम प्रतिलेख: {transcript[:120]}"

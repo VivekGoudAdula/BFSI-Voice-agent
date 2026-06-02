@@ -19,8 +19,9 @@ class ConversationBehaviorEngine:
 
     def shape_response(self, text: str, language: str, sentiment: str = "neutral") -> str:
         cleaned = self._replace_robotic_phrases(text)
-        cleaned = self._limit_sentence_count(cleaned, max_sentences=3)
         cleaned = self._inject_filler(cleaned, language, sentiment)
+        cleaned = self._limit_sentence_count(cleaned, max_sentences=1)
+        cleaned = self._limit_word_count(cleaned, max_words=15)
         return cleaned.strip()
 
     def _replace_robotic_phrases(self, text: str) -> str:
@@ -38,6 +39,16 @@ class ConversationBehaviorEngine:
         if len(parts) <= max_sentences:
             return text
         return " ".join(parts[:max_sentences]).strip()
+
+    def _limit_word_count(self, text: str, max_words: int = 15) -> str:
+        words = text.split()
+        if len(words) <= max_words:
+            return text
+        truncated = " ".join(words[:max_words]).strip()
+        # Ensure we end with some terminal punctuation for a single utterance.
+        if not truncated.endswith((".", "!", "?", "।")):
+            truncated += "."
+        return truncated
 
     def _inject_filler(self, text: str, language: str, sentiment: str) -> str:
         if not text:

@@ -115,6 +115,8 @@ class ActiveCallSession:
     language_confidence: float = 0.0
     language_switches: int = 0
     stt: Any = None
+    pending_latency_tracker: Any = None
+    current_latency_tracker: Any = None
 
     messages: list[dict[str, str]] = field(default_factory=list)
 
@@ -137,6 +139,8 @@ class ActiveCallSession:
     total_turn_duration_ms: float = 0.0
     response_latency_ms_sum: float = 0.0
     response_latency_count: int = 0
+    assistant_char_total: int = 0
+    assistant_word_total: int = 0
     last_customer_sentiment: str = "neutral"
 
     websocket: Any = None
